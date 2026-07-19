@@ -1,0 +1,24 @@
+{
+  "name": "js",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@jupyter-widgets/base": "^6.0.11",
+    "@jupyter-widgets/controls": "^5.0.12",
+    "@jupyter-widgets/html-manager": "^1.0.14",
+    "anywidget": "^0.9.18",
+    "jupyter-leaflet": "^0.20.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.1"
+  }
+}

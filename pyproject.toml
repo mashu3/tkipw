@@ -1,0 +1,90 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tkipw"
+version = "0.0.1"
+description = "ipywidgets / anywidget desktop runtime on tkwry (no Jupyter Notebook)"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{ name = "mashu3" }]
+keywords = ["ipywidgets", "anywidget", "tkwry", "tkinter", "webview"]
+dependencies = [
+  "tkwry>=0.1.0",
+  "ipywidgets>=8.0,<9",
+  "comm>=0.2",
+  "traitlets>=5.0",
+  "markdown>=3.5",
+]
+
+[project.optional-dependencies]
+anywidget = ["anywidget>=0.9"]
+demo = [
+  "anywidget>=0.9",
+  "plotly>=5.0",
+  "pandas>=2.0",
+  "numpy>=1.24",
+  "matplotlib>=3.7",
+  "folium>=0.14",
+  "ipyleaflet>=0.20,<0.21",
+  "pillow>=10.0",
+  "altair>=5.0",
+  "bokeh>=3.0",
+  "pyvista[jupyter]>=0.44",
+]
+dev = [
+  "pytest>=7.0",
+  "ruff>=0.9",
+  "anywidget>=0.9",
+  "plotly>=5.0",
+  "pandas>=2.0",
+  "numpy>=1.24",
+  "matplotlib>=3.7",
+  "folium>=0.14",
+  "ipyleaflet>=0.20,<0.21",
+  "pillow>=10.0",
+  "altair>=5.0",
+  "bokeh>=3.0",
+  "pyvista[jupyter]>=0.44",
+]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = ["UP045"]
+
+# runtime.js / runtime.css are built by `npm run build` (js/) in CI and are
+# git-ignored, so list them as artifacts to force their inclusion in builds.
+[tool.hatch.build]
+artifacts = [
+  "src/tkipw/html/runtime.js",
+  "src/tkipw/html/runtime.css",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tkipw"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/src/tkipw",
+  "/js",
+  "/examples",
+  "/tests",
+  "/NOTICE",
+  "/README.md",
+]
+
+[tool.pytest.ini_options]
+# tests/unit -> fast, display-free unit tests (mirror src/tkipw modules)
+# tests/e2e  -> opt-in real-WebView tests (TKIPW_E2E=1)
+# tests/support -> shared fakes/fixtures, importable as ``support``
+testpaths = ["tests"]
+pythonpath = ["src", ".", "tests"]
+markers = [
+    "e2e: requires a display and a native tkwry WebView (opt in with TKIPW_E2E=1)",
+]

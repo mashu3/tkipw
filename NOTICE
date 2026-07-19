@@ -1,0 +1,71 @@
+tkipw
+Copyright (c) 2026 mashu3
+
+This product includes software from third-party projects:
+
+ipywidgets / @jupyter-widgets/*
+  Copyright (c) Jupyter Development Team
+  License: BSD-3-Clause
+  https://github.com/jupyter-widgets/ipywidgets
+
+anywidget
+  Copyright (c) Trevor Manz
+  License: MIT
+  https://github.com/manzt/anywidget
+
+tkwry
+  Copyright (c) mashu3
+  License: MIT
+  https://github.com/mashu3/tkwry
+
+comm
+  Copyright (c) IPython Development Team
+  License: BSD-3-Clause
+  https://github.com/ipython/comm
+
+Python-Markdown
+  Copyright 2007, 2008 The Python Markdown Project
+  Copyright 2004, 2005, 2006 Yuri Takhteyev
+  Copyright 2004 Manfred Stienstra
+  License: BSD-3-Clause
+  https://github.com/Python-Markdown/markdown
+
+ipyleaflet / jupyter-leaflet
+  Copyright (c) Project Jupyter Contributors
+  License: MIT
+  https://github.com/jupyter-widgets/ipyleaflet
+
+------------------------------------------------------------------------
+
+The prebuilt front-end bundle (tkipw/html/runtime.js and runtime.css, produced
+from js/ with esbuild) additionally embeds code from the following projects:
+
+Lumino (@lumino/*)
+  Copyright (c) Project Jupyter Contributors
+  License: BSD-3-Clause
+  https://github.com/jupyterlab/lumino
+
+jQuery
+  Copyright (c) OpenJS Foundation and other contributors
+  License: MIT
+  https://github.com/jquery/jquery
+
+Backbone.js
+  Copyright (c) Jeremy Ashkenas, DocumentCloud and Investigative Reporters &
+  Editors
+  License: MIT
+  https://github.com/jashkenas/backbone
+
+Font Awesome Free (icon styles bundled via @jupyter-widgets; font binaries are
+stripped from the build)
+  Copyright (c) Fonticons, Inc.
+  License: CSS/JS under MIT; icon graphics under CC BY 4.0; fonts under
+  SIL OFL 1.1
+  https://github.com/FortAwesome/Font-Awesome
+
+Leaflet and the Leaflet plugins bundled by jupyter-leaflet
+  Copyright (c) Vladimir Agafonkin, CloudMade, Project Jupyter, and the
+  respective plugin contributors
+  Licenses: BSD-2-Clause, BSD-3-Clause, MIT, ISC, and Beerware
+  https://github.com/Leaflet/Leaflet
+  https://github.com/jupyter-widgets/ipyleaflet

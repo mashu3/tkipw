@@ -1,0 +1,149 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install ruff
+        run: pip install "ruff>=0.9"
+
+      - name: Ruff check
+        run: ruff check src tests examples
+
+      - name: Ruff format
+        run: ruff format --check src tests examples
+
+  test:
+    name: Test (${{ matrix.os }}, py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python-version: "3.12"
+          - os: windows-latest
+            python-version: "3.12"
+          - os: windows-11-arm
+            python-version: "3.12"
+          - os: macos-latest
+            python-version: "3.12"
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: js/package-lock.json
+
+      - name: Build JS runtime bundle
+        shell: bash
+        run: |
+          npm --prefix js ci
+          npm --prefix js run build
+
+      # Linux: tkwry has no wheel (sdist only) — need Rust + GTK/WebKit headers.
+      - name: Install Rust (Linux, for tkwry source build)
+        if: runner.os == 'Linux'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux WebView build/runtime dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libglib2.0-dev \
+            pkg-config \
+            xvfb
+
+      - name: Install (with dev extras)
+        if: matrix.os != 'windows-11-arm'
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      # vtk has no win_arm64 wheel, so pyvista cannot resolve on this runner.
+      # PyVista tests already use importorskip and will be skipped.
+      - name: Install (dev extras without pyvista)
+        if: matrix.os == 'windows-11-arm'
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install \
+            "pytest>=7.0" \
+            "ruff>=0.9" \
+            "anywidget>=0.9" \
+            "plotly>=5.0" \
+            "pandas>=2.0" \
+            "numpy>=1.24" \
+            "matplotlib>=3.7" \
+            "folium>=0.14" \
+            "ipyleaflet>=0.20,<0.21" \
+            "pillow>=10.0" \
+            "altair>=5.0" \
+            "bokeh>=3.0"
+
+      - name: Configure Tcl/Tk (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          echo "TCL_LIBRARY=${pythonLocation}/tcl/tcl8.6" >> "$GITHUB_ENV"
+          echo "TK_LIBRARY=${pythonLocation}/tcl/tk8.6" >> "$GITHUB_ENV"
+
+      - name: Enlarge /dev/shm for WebKitGTK
+        if: runner.os == 'Linux'
+        run: sudo mount -o remount,size=2G /dev/shm
+
+      - name: Run tests (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          DISPLAY: :99
+          TK_SILENCE_DEPRECATION: "1"
+          PYTHONUNBUFFERED: "1"
+        run: |
+          # WebKitGTK hangs after many WebViews and needs >64MB /dev/shm.
+          # Split suites live in scripts/run-linux-ci-tests.sh.
+          Xvfb :99 -screen 0 1280x720x24 -ac +extension GLX +render -noreset &
+          sleep 3
+          bash scripts/run-linux-ci-tests.sh
+
+      - name: Run tests (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          TKIPW_E2E: "1"
+          TK_SILENCE_DEPRECATION: "1"
+        run: pytest tests/ -v
+
+      - name: Run tests (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          TK_SILENCE_DEPRECATION: "1"
+        run: pytest tests/ -v

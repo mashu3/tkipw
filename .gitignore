@@ -1,0 +1,23 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.tox/
+.hypothesis/
+.ipynb_checkpoints/
+.coverage
+htmlcov/
+coverage.xml
+.DS_Store
+js/node_modules/
+*.log
+
+# Built JS runtime bundle: produced by `npm run build` in js/, built in CI and
+# bundled into the wheel/sdist. Not committed to the repo.
+/src/tkipw/html/runtime.js
+/src/tkipw/html/runtime.css

@@ -1,0 +1,229 @@
+"""Jupyter compatibility layer and display-extension registry."""
+
+from __future__ import annotations
+
+import asyncio
+import atexit
+import threading
+from collections import OrderedDict
+from typing import Any, Protocol
+
+
+class JupyterExtension(Protocol):
+    """Adapter for a library's Jupyter display behavior."""
+
+    name: str
+
+    def setup(self) -> None:
+        """Configure the library for a notebook-like frontend."""
+
+    def transform(self, obj: Any) -> Any:
+        """Prepare a display object for tkipw's WebView."""
+
+
+_extensions: OrderedDict[str, JupyterExtension] = OrderedDict()
+_enabled: set[str] = set()
+_bridge_installed = False
+_builtins_loaded = False
+_original_ipython_display: Any | None = None
+
+
+class JupyterEventLoop:
+    """Persistent asyncio loop for Jupyter backends inside a Tk application."""
+
+    def __init__(self) -> None:
+        self._loop = asyncio.new_event_loop()
+        self._ready = threading.Event()
+        self._thread = threading.Thread(
+            target=self._run,
+            name="tkipw-jupyter-event-loop",
+            daemon=True,
+        )
+        self._thread.start()
+        self._ready.wait()
+
+    def _run(self) -> None:
+        asyncio.set_event_loop(self._loop)
+        self._ready.set()
+        self._loop.run_forever()
+
+    def submit(self, coroutine: Any):
+        """Run a coroutine on the persistent loop."""
+        return asyncio.run_coroutine_threadsafe(coroutine, self._loop)
+
+    def stop(self) -> None:
+        if self._loop.is_running():
+            self._loop.call_soon_threadsafe(self._loop.stop)
+            self._thread.join(timeout=3)
+        if not self._loop.is_running() and not self._loop.is_closed():
+            self._loop.close()
+
+
+_event_loop: JupyterEventLoop | None = None
+_event_loop_lock = threading.Lock()
+
+
+def get_jupyter_event_loop() -> JupyterEventLoop:
+    """Return the shared asyncio loop used by live Jupyter backends."""
+    global _event_loop
+    with _event_loop_lock:
+        if _event_loop is None:
+            _event_loop = JupyterEventLoop()
+            atexit.register(_event_loop.stop)
+        return _event_loop
+
+
+def register_extension(
+    extension: JupyterExtension,
+    *,
+    enable: bool = True,
+) -> None:
+    """Register a Jupyter adapter, optionally enabling it immediately."""
+    existing = _extensions.get(extension.name)
+    if existing is not None:
+        if type(existing) is not type(extension):
+            raise ValueError(
+                f"Jupyter extension {extension.name!r} is already registered"
+            )
+        extension = existing
+    _extensions[extension.name] = extension
+    if enable:
+        enable_extension(extension.name)
+
+
+def enable_extension(name: str) -> None:
+    """Enable a registered extension once."""
+    if name in _enabled:
+        return
+    extension = _extensions[name]
+    extension.setup()
+    _enabled.add(name)
+
+
+def get_extension(name: str) -> JupyterExtension | None:
+    """Return a registered extension by name, or ``None``."""
+    return _extensions.get(name)
+
+
+def transform_display_object(obj: Any) -> Any:
+    """Apply enabled display transforms in registration order."""
+    current = obj
+    for name, extension in tuple(_extensions.items()):
+        if name in _enabled:
+            current = extension.transform(current)
+    return current
+
+
+def install_jupyter_support() -> None:
+    """Install IPython display routing and available built-in adapters."""
+    _install_ipython_display_bridge()
+    _load_builtin_extensions()
+    # Re-enable registered extensions after a previous teardown.
+    for name in tuple(_extensions):
+        try:
+            enable_extension(name)
+        except ImportError:
+            # Built-in adapters target optional dependencies. An unavailable
+            # library must not prevent the remaining display bridge from
+            # being installed.
+            continue
+
+
+def _install_ipython_display_bridge() -> None:
+    global _bridge_installed, _original_ipython_display
+    if _bridge_installed:
+        return
+    try:
+        import IPython.display as ipy_display
+    except ImportError:
+        return
+
+    from .output import display as tkipw_display
+
+    _original_ipython_display = ipy_display.display
+
+    def _bridged(*objs: Any, **_kwargs: Any) -> None:
+        if objs:
+            # ``output.to_widget`` is the canonical transform gateway.
+            tkipw_display(*objs)
+
+    ipy_display.display = _bridged  # type: ignore[assignment]
+    _bridge_installed = True
+
+
+def uninstall_jupyter_support() -> None:
+    """Restore ``IPython.display.display`` (undo the display bridge)."""
+    global _bridge_installed, _original_ipython_display
+    for name in reversed(tuple(_extensions)):
+        if name not in _enabled:
+            continue
+        teardown = getattr(_extensions[name], "teardown", None)
+        if callable(teardown):
+            try:
+                teardown()
+            except Exception:
+                pass
+    _enabled.clear()
+
+    if not _bridge_installed:
+        return
+    try:
+        import IPython.display as ipy_display
+    except ImportError:
+        _bridge_installed = False
+        _original_ipython_display = None
+        return
+    if _original_ipython_display is not None:
+        ipy_display.display = _original_ipython_display  # type: ignore[assignment]
+    _bridge_installed = False
+    _original_ipython_display = None
+
+
+def _load_builtin_extensions() -> None:
+    global _builtins_loaded
+    if _builtins_loaded:
+        return
+    _builtins_loaded = True
+
+    try:
+        from .display_mode import get_display_mode
+        from .extensions.matplotlib import MatplotlibExtension
+
+        register_extension(MatplotlibExtension(mode=get_display_mode()), enable=False)
+    except ImportError:
+        pass
+
+    try:
+        from .extensions.pyvista import PyVistaExtension
+
+        register_extension(PyVistaExtension(), enable=False)
+    except ImportError:
+        pass
+
+    try:
+        from .extensions.pillow import PillowExtension
+
+        register_extension(PillowExtension(), enable=False)
+    except ImportError:
+        pass
+
+    try:
+        from .extensions.folium import FoliumExtension
+
+        register_extension(FoliumExtension(), enable=False)
+    except ImportError:
+        pass
+
+    try:
+        from .extensions.altair import AltairExtension
+
+        register_extension(AltairExtension(), enable=False)
+    except ImportError:
+        pass
+
+    try:
+        from .extensions.bokeh import BokehExtension
+
+        register_extension(BokehExtension(), enable=False)
+    except ImportError:
+        pass
