@@ -146,6 +146,6 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         env:
-          TKIPW_E2E: "1"
           TK_SILENCE_DEPRECATION: "1"
-        run: pytest tests/ -v
+          PYTHONUNBUFFERED: "1"
+        run: bash scripts/run-windows-ci-tests.sh
