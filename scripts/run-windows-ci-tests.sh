@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Windows CI test runner (GitHub Actions bash shell).
-# Split e2e suites into separate pytest processes: after many WebView2
-# instances in one process, Windows (especially arm64) can fatal-exit while
-# creating the next App (0x80000003 during GC / http.server / Tk pump), or
-# leave Tcl unable to open init.tcl for a subsequent tk.Tk().
+#
+# WebView2 on Windows (especially arm64) is unstable after repeated App
+# create/destroy in one process: fatal 0x80000003 during GC + LocalHTMLHost
+# writes, or Tcl failing to open init.tcl. Run each e2e case in its own
+# pytest process so native state cannot accumulate.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -14,12 +15,13 @@ export PYTHONUNBUFFERED="${PYTHONUNBUFFERED:-1}"
 
 pytest tests/unit/ -v --tb=short
 
-# Window-mode uses nested Tk roots; run it first in a fresh process while
-# Tcl/WebView2 are still clean (later suites can leave init.tcl unreadable).
-TKIPW_E2E=1 pytest \
-  tests/e2e/test_extensions.py::test_ipyleaflet_map_renders_in_window_mode \
-  -v --tb=short
+run_e2e_isolated() {
+  local nodeid
+  while IFS= read -r nodeid; do
+    [[ "$nodeid" == *::* ]] || continue
+    echo "==> $nodeid"
+    TKIPW_E2E=1 pytest "$nodeid" -v --tb=short
+  done < <(TKIPW_E2E=1 pytest "$@" --collect-only -q | grep '::' || true)
+}
 
-TKIPW_E2E=1 pytest tests/e2e/test_webview.py -v --tb=short
-TKIPW_E2E=1 pytest tests/e2e/test_extensions.py -v --tb=short \
-  -k "not test_ipyleaflet_map_renders_in_window_mode"
+run_e2e_isolated tests/e2e/test_webview.py tests/e2e/test_extensions.py
