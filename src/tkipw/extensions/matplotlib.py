@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import io
+import sys
 from collections.abc import Callable
 from typing import Any, Literal
 
@@ -49,6 +50,9 @@ class MatplotlibExtension:
         if mode == self.mode and self._setup:
             return
         was_setup = self._setup
+        # Teardown under the *new* mode flag only for cleanup that is
+        # mode-specific; clear figures before flipping so a failed TkAgg load
+        # cannot hang ``plt.close("all")`` during the next switch.
         if was_setup:
             self.teardown()
         self.mode = mode
@@ -66,39 +70,49 @@ class MatplotlibExtension:
             try:
                 matplotlib.use("TkAgg", force=True)
             except Exception:
-                pass
-            # Prefer process DPI awareness (enabled before Tk). Only fall back
-            # to enlarging figure DPI when awareness could not be set.
-            import tkface
-            from matplotlib import pyplot as plt
+                # Headless / missing Tk builds cannot host interactive windows.
+                # Leave the previous backend; ``show`` stays unpatched so the
+                # native Matplotlib path still runs when Tk is available later.
+                self._setup = True
+                return
+            # DPI figure scaling is Windows-only (process awareness is a no-op
+            # elsewhere). Never import tkface on the critical Linux CI path.
+            if sys.platform == "win32":
+                try:
+                    import tkface
+                    from matplotlib import pyplot as plt
 
-            self._window_ui_scale = float(tkface.win.get_windows_scale_factor())
-            if (
-                not tkface.win.is_process_dpi_aware()
-                and self._window_ui_scale != 1.0
-                and self._original_figure is None
-            ):
-                self._original_figure = plt.figure
-                scale = self._window_ui_scale
-                original_figure = self._original_figure
+                    self._window_ui_scale = float(
+                        tkface.win.get_windows_scale_factor()
+                    )
+                    if (
+                        not tkface.win.is_process_dpi_aware()
+                        and self._window_ui_scale != 1.0
+                        and self._original_figure is None
+                    ):
+                        self._original_figure = plt.figure
+                        scale = self._window_ui_scale
+                        original_figure = self._original_figure
 
-                def figure(*args: Any, **kwargs: Any) -> Any:
-                    dpi = kwargs.get("dpi")
-                    if dpi is None:
-                        dpi = matplotlib.rcParams.get("figure.dpi", 100)
-                    try:
-                        kwargs["dpi"] = float(dpi) * scale
-                    except (TypeError, ValueError):
-                        pass
-                    return original_figure(*args, **kwargs)
+                        def figure(*args: Any, **kwargs: Any) -> Any:
+                            dpi = kwargs.get("dpi")
+                            if dpi is None:
+                                dpi = matplotlib.rcParams.get("figure.dpi", 100)
+                            try:
+                                kwargs["dpi"] = float(dpi) * scale
+                            except (TypeError, ValueError):
+                                pass
+                            return original_figure(*args, **kwargs)
 
-                plt.figure = figure  # type: ignore[assignment]
+                        plt.figure = figure  # type: ignore[assignment]
+                except Exception:
+                    self._window_ui_scale = 1.0
             self._setup = True
             return
 
         if self.force_agg:
             try:
-                matplotlib.use("Agg", force=False)
+                matplotlib.use("Agg", force=True)
             except Exception:
                 pass
 
@@ -128,7 +142,14 @@ class MatplotlibExtension:
     def teardown(self) -> None:
         if not self._setup:
             return
+        # Prefer Agg for cleanup so a half-initialized TkAgg cannot block CI.
         if self.mode == "window":
+            try:
+                import matplotlib
+
+                matplotlib.use("Agg", force=True)
+            except Exception:
+                pass
             _close_all_figures()
         if self._original_figure is not None:
             from matplotlib import pyplot as plt
