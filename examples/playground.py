@@ -209,8 +209,9 @@ import pyvista as pv
 
 sphere = pv.Sphere()
 
-# Jupyter API. On tkipw, "trame"/"server" are remapped to "client"
-# (native VTK OpenGL + WKWebView SIGTRAPs on macOS).
+# Uses PyVista's Jupyter path (tkipw forces notebook=True).
+# "trame"/"server" are remapped to "client" so a native VTK window
+# does not open; needs: pip install "pyvista[jupyter]"
 sphere.plot(jupyter_backend="client")
 
 # long example
@@ -1406,14 +1407,21 @@ class Playground:
             ipc_handler=self._on_editor_ipc,
         )
 
-        self.app = App(
-            parent=right,
-            title="tkipw · playground",
-            display_mode="inline",
-        )
+        # Defer the output App so status/editor WebViews finish native
+        # creation first (Windows WebView2 + VTK threads can GIL-crash).
         self._results = StackedOutput()
-        self.app.display(self._results)
-        self.root.after_idle(lambda: self._set_output_visible(False))
+        self.app: App | None = None
+
+        def _create_app() -> None:
+            self.app = App(
+                parent=right,
+                title="tkipw · playground",
+                display_mode="inline",
+            )
+            self.app.display(self._results)
+            self.root.after_idle(lambda: self._set_output_visible(False))
+
+        self.root.after_idle(_create_app)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self._install_shortcuts()
 
@@ -1619,6 +1627,8 @@ class Playground:
 
     def _apply_display_mode(self) -> None:
         mode = self._display_mode_var.get()
+        if self.app is None:
+            return
         self.app.set_display_mode(mode)
         # Inline needs the result pane; window mode gives the editor full width.
         self._set_output_visible(mode == "inline")
@@ -1690,6 +1700,8 @@ class Playground:
 
     def _apply_output_theme(self) -> None:
         mode = "dark" if self._dark_output_var.get() else "light"
+        if self.app is None:
+            return
         try:
             self.app.set_theme(mode)
         except Exception:
@@ -1897,7 +1909,7 @@ class Playground:
             self._set_status(status)
 
     def _on_run(self) -> None:
-        if self._busy or not self._editor_ready:
+        if self._busy or not self._editor_ready or self.app is None:
             return
         if self.app.display_mode == "inline" and not self._output_visible_var.get():
             self._set_output_visible(True)
@@ -2071,6 +2083,9 @@ class Playground:
         self.root.after(80, apply)
 
     def _exec_code(self, code: str, filename: str) -> None:
+        if self.app is None:
+            self._finish("output app not ready")
+            return
         status = "done"
         inline = self.app.display_mode == "inline"
         stream_output = None if inline else out.Output()
@@ -2132,6 +2147,9 @@ class Playground:
         self._finish(f"{status} · {filename}")
 
     def _render_markdown(self, source: str, filename: str) -> None:
+        if self.app is None:
+            self._finish("output app not ready")
+            return
         try:
             if self.app.display_mode == "inline":
                 with self._results:

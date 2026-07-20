@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import tkinter as tk
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -431,6 +432,7 @@ class App:
         self.compact = compact
         self.theme = "light"
         self._ready = False
+        self._ready_callbacks: list[Callable[[], None]] = []
         self._destroyed = False
         self._outbound: list[dict[str, Any]] = []
         self._known_model_ids: set[str] = set()
@@ -450,6 +452,10 @@ class App:
             self._container: tk.Misc = self.root
             self.root.title(title)
             self.root.geometry(f"{width}x{height}")
+            # Withdraw before packing the WebView so Windows does not flash an
+            # empty host window (content lives in Toplevel pop-ups).
+            if self.display_mode == "window":
+                self.root.withdraw()
         else:
             self._container = container
             self.root = container.winfo_toplevel()
@@ -484,10 +490,6 @@ class App:
         if self._owns_root:
             # Tear down native WebView before Tk walks the widget tree.
             self.root.protocol("WM_DELETE_WINDOW", self.destroy)
-            # Window mode: the root is only an event-loop host; content opens
-            # in Toplevel pop-ups (avoid an empty second window).
-            if self.display_mode == "window":
-                self.root.withdraw()
 
     def _on_page_load(self, event: PageLoadEvent, url: str | None) -> None:
         if event == PageLoadEvent.Finished and not self._ready:
@@ -561,6 +563,7 @@ class App:
             self._ready = True
             self._apply_theme()
             self._schedule_flush()
+            self._fire_ready_callbacks()
             return
         if channel == "comm":
             self._handle_comm_from_js(msg)
@@ -568,6 +571,32 @@ class App:
         if channel == "error":
             detail = msg.get("detail") or msg.get("message") or raw
             print(f"[tkipw] frontend error: {detail}")
+
+    def when_ready(self, callback: Callable[[], None]) -> None:
+        """Run *callback* once the widget runtime has booted (and after flush)."""
+        if self._destroyed:
+            return
+        if self._ready:
+            self._schedule_ready_callback(callback)
+            return
+        self._ready_callbacks.append(callback)
+
+    def _fire_ready_callbacks(self) -> None:
+        callbacks = self._ready_callbacks
+        self._ready_callbacks = []
+        for callback in callbacks:
+            self._schedule_ready_callback(callback)
+
+    def _schedule_ready_callback(self, callback: Callable[[], None]) -> None:
+        # ``_schedule_flush`` already queued an idle flush; a second idle runs
+        # after it so pop-up reveal happens with widgets already delivered.
+        try:
+            self.root.after_idle(callback)
+        except Exception:
+            try:
+                callback()
+            except Exception:
+                pass
 
     def _handle_comm_from_js(self, msg: dict[str, Any]) -> None:
         msg_type = msg.get("msg_type")
@@ -678,6 +707,7 @@ class App:
             pass
 
         self._ready = False
+        self._ready_callbacks.clear()
         self._outbound.clear()
         self._flush_scheduled = False
         if self._flush_after_id is not None:

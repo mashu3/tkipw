@@ -70,6 +70,36 @@ def test_missing_optional_extension_does_not_block_install():
     assert transform_display_object(marker) is marker
 
 
+def test_pyvista_extension_not_enabled_until_import():
+    import sys
+
+    from tkipw import jupyter as jupyter_mod
+
+    jupyter_mod.uninstall_jupyter_support()
+    try:
+        install_jupyter_support()
+        assert jupyter_mod._pyvista_import_hook_installed
+        if "pyvista" not in sys.modules:
+            assert "pyvista" not in jupyter_mod._enabled
+    finally:
+        jupyter_mod.uninstall_jupyter_support()
+
+
+def test_pyvista_import_hook_waits_for_full_module_init():
+    pytest.importorskip("pyvista")
+    from tkipw import jupyter as jupyter_mod
+
+    jupyter_mod.uninstall_jupyter_support()
+    try:
+        install_jupyter_support()
+        import pyvista as pv  # noqa: F401
+
+        assert "pyvista" in jupyter_mod._enabled
+        assert pv.global_theme.notebook is True
+    finally:
+        jupyter_mod.uninstall_jupyter_support()
+
+
 def test_install_uninstall_restores_ipython_display():
     ipy = pytest.importorskip("IPython.display")
     from tkipw.jupyter import uninstall_jupyter_support

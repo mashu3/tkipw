@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import atexit
-import sys
 import warnings
 from types import MethodType
 from typing import Any
@@ -11,8 +10,7 @@ from typing import Any
 from ..html_host import demote_module_scripts, host_srcdoc_iframe
 
 # Modes that keep PyVista's Jupyter/trame stack but avoid a native VTK
-# OpenGL/Cocoa window. On macOS that window SIGTRAPs when a WKWebView is open.
-_SAFE_LIVE_BACKENDS = frozenset({"client"})
+# OpenGL window (Cocoa SIGTRAP under WKWebView; also unwanted on Windows).
 _UNSAFE_LIVE_BACKENDS = frozenset({"trame", "server"})
 
 
@@ -24,8 +22,8 @@ class PyVistaExtension:
         handle_plotter → show_trame → ipywidgets.Widget → IPython.display
 
     ``trame`` / ``server`` are remapped to ``client`` because server-side VTK
-    rendering opens a native Cocoa/OpenGL window and crashes under tkwry's
-    WKWebView (``zsh: trace trap``). ``html`` stays on the offline vtk.js path.
+    rendering opens a native OpenGL window instead of the WebView. ``html``
+    stays on the offline vtk.js path and does not need trame.
     """
 
     name = "pyvista"
@@ -33,26 +31,64 @@ class PyVistaExtension:
     def __init__(self, *, backend: str | None = None) -> None:
         self.backend = backend
         self._setup = False
+        self._trame_available = False
         self._servers: list[Any] = []
         self._shutdown_registered = False
         self._original_handle: Any = None
         self._original_launch_server: Any = None
+        self._original_in_ipykernel: Any = None
 
     def setup(self) -> None:
         if self._setup:
             return
-        import pyvista as pv
-        from pyvista.jupyter import notebook as pv_notebook
-        from pyvista.trame import jupyter as pv_jupyter
+        import sys
 
+        pv = sys.modules.get("pyvista")
+        if pv is None:
+            import pyvista as pv  # noqa: PLC0415
+
+        import scooby
+        from pyvista.jupyter import notebook as pv_notebook
+
+        # PyVista only honors jupyter_backend when Plotter.notebook is True.
+        # Outside ipykernel that defaults to False and a native VTK window opens
+        # (the "Ignoring jupyter_backend" warning). Force notebook mode first so
+        # a missing trame install cannot skip this step.
+        pv.global_theme.notebook = True
+        if self._original_in_ipykernel is None:
+            self._original_in_ipykernel = scooby.in_ipykernel
+            scooby.in_ipykernel = lambda: True  # type: ignore[assignment]
+
+        original_handle = pv_notebook.handle_plotter
+        self._original_handle = original_handle
+        extension = self
+
+        def handle_plotter(
+            plotter: Any,
+            backend: str | None = None,
+            **kwargs: Any,
+        ) -> Any:
+            # Scripts may reset the theme; keep notebook mode sticky.
+            pv.global_theme.notebook = True
+            backend = extension._coerce_backend(backend)
+            viewer = original_handle(plotter, backend=backend, **kwargs)
+            return extension.transform(viewer)
+
+        pv_notebook.handle_plotter = handle_plotter  # type: ignore[assignment]
+
+        try:
+            from pyvista.trame import jupyter as pv_jupyter
+        except ImportError:
+            self._trame_available = False
+            self._apply_preferred_backend(pv)
+            self._setup = True
+            return
+
+        self._trame_available = True
         from ..jupyter import get_jupyter_event_loop
 
-        pv.global_theme.notebook = True
-        original_handle = pv_notebook.handle_plotter
         original_launch_server = pv_jupyter.launch_server
-        self._original_handle = original_handle
         self._original_launch_server = original_launch_server
-        extension = self
 
         def elegantly_launch(*args: Any, **kwargs: Any) -> Any:
             """Launch trame on the persistent loop Jupyter normally provides."""
@@ -93,52 +129,51 @@ class PyVistaExtension:
                 extension._shutdown_registered = True
             return loop.submit(launch()).result(timeout=30)
 
-        def handle_plotter(
-            plotter: Any,
-            backend: str | None = None,
-            **kwargs: Any,
-        ) -> Any:
-            backend = extension._coerce_backend(backend)
-            viewer = original_handle(plotter, backend=backend, **kwargs)
-            return extension.transform(viewer)
-
-        # Official Jupyter path, with a durable asyncio loop + safe backend.
         pv_jupyter.elegantly_launch = elegantly_launch
-        pv_notebook.handle_plotter = handle_plotter  # type: ignore[assignment]
-        if self.backend is not None:
-            try:
-                pv.set_jupyter_backend(self._coerce_backend(self.backend))
-            except Exception:
-                pass
+        self._apply_preferred_backend(pv)
         self._setup = True
 
     def teardown(self) -> None:
         if not self._setup:
             return
+        import scooby
         from pyvista.jupyter import notebook as pv_notebook
-        from pyvista.trame import jupyter as pv_jupyter
 
         self._shutdown()
         if self._original_handle is not None:
             pv_notebook.handle_plotter = self._original_handle
-        if self._original_launch_server is not None:
+        if self._trame_available and self._original_launch_server is not None:
+            from pyvista.trame import jupyter as pv_jupyter
+
             pv_jupyter.elegantly_launch = self._original_launch_server
+        if self._original_in_ipykernel is not None:
+            scooby.in_ipykernel = self._original_in_ipykernel
         self._original_handle = None
         self._original_launch_server = None
+        self._original_in_ipykernel = None
+        self._trame_available = False
         self._setup = False
+
+    def _apply_preferred_backend(self, pv: Any) -> None:
+        preferred = self._coerce_backend(self.backend)
+        if preferred is None:
+            return
+        try:
+            pv.set_jupyter_backend(preferred)
+        except Exception:
+            pass
 
     def _coerce_backend(self, backend: str | None) -> str | None:
         if backend in _UNSAFE_LIVE_BACKENDS:
             warnings.warn(
-                f"pyvista jupyter_backend={backend!r} uses native VTK rendering "
-                "and crashes under tkwry's WKWebView on macOS; "
-                "using jupyter_backend='client' (same trame Widget path).",
+                f"pyvista jupyter_backend={backend!r} opens a native VTK window; "
+                "using jupyter_backend='client' for the WebView path.",
                 RuntimeWarning,
                 stacklevel=3,
             )
-            return "client"
-        if backend is None and sys.platform == "darwin":
-            # Theme default may be 'trame'; prefer client on this desktop runtime.
+            backend = "client"
+
+        if backend is None:
             try:
                 import pyvista as pv
 
@@ -146,7 +181,20 @@ class PyVistaExtension:
             except Exception:
                 current = None
             if current in _UNSAFE_LIVE_BACKENDS or current is None:
-                return "client"
+                backend = "client"
+            else:
+                backend = current
+
+        if backend in ("client", "trame", "server") and not self._trame_available:
+            warnings.warn(
+                "pyvista trame extras are not installed; "
+                "using jupyter_backend='html'. "
+                'Install with: pip install "pyvista[jupyter]"',
+                RuntimeWarning,
+                stacklevel=3,
+            )
+            return "html"
+
         return backend
 
     def _shutdown(self) -> None:

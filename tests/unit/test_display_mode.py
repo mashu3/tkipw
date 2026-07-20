@@ -149,6 +149,25 @@ def test_markdown_window_uses_document_default_not_table():
     assert infer_window_size(source, widget) == _MARKDOWN_WINDOW_SIZE
 
 
+def test_cloak_window_hides_via_alpha_when_supported():
+    import tkinter as tk
+
+    from tkipw.display_mode import _cloak_window, _reveal_window
+
+    root = tk.Tk()
+    root.withdraw()
+    top = tk.Toplevel(root)
+    try:
+        if not _cloak_window(top):
+            pytest.skip("window alpha not supported on this Tk build")
+        assert float(top.attributes("-alpha")) == 0.0
+        _reveal_window(top)
+        assert float(top.attributes("-alpha")) == 1.0
+    finally:
+        top.destroy()
+        root.destroy()
+
+
 def test_ipyleaflet_window_uses_map_layout_or_readable_default():
     ipyleaflet = pytest.importorskip("ipyleaflet")
     from ipywidgets import Layout

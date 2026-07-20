@@ -22,6 +22,32 @@ _MARKDOWN_WINDOW_SIZE = (720, 560)
 _DEFAULT_WINDOW_SIZE = (720, 432)
 
 
+def _cloak_window(win: Any) -> bool:
+    """Hide *win* while keeping it mapped so an embedded WebView can load.
+
+    ``withdraw()`` leaves geometry at 1×1 until first map, which blocks tkwry
+    creation. Transparent ``-alpha`` avoids an empty flash on Windows/macOS.
+    Returns whether cloaking succeeded.
+    """
+    try:
+        win.attributes("-alpha", 0.0)
+        return True
+    except Exception:
+        return False
+
+
+def _reveal_window(win: Any) -> None:
+    """Undo :func:`_cloak_window` and ensure the window is mapped."""
+    try:
+        win.attributes("-alpha", 1.0)
+    except Exception:
+        pass
+    try:
+        win.deiconify()
+    except Exception:
+        pass
+
+
 def get_display_mode() -> DisplayMode:
     """Return the active App's display mode (``inline`` without an App)."""
     try:
@@ -134,6 +160,8 @@ def open_display_window(
     win_h = height if height is not None else inferred[1]
 
     top = tk.Toplevel(host.root)
+    # Cloak before the idle map so Windows does not flash an empty shell.
+    cloaked = _cloak_window(top)
     top.title(win_title)
     # Keep large tables usable on the current monitor; compact tables retain
     # their natural inferred size.
@@ -183,6 +211,10 @@ def open_display_window(
     top.protocol("WM_DELETE_WINDOW", _close)
     if widgets:
         popup.display(*widgets)
+
+    if cloaked:
+        # Reveal after runtime ready + outbound flush (see App.when_ready).
+        popup.when_ready(lambda: _reveal_window(top))
 
     # Keep the host App as the active bridge for the next display()/show().
     host.activate()

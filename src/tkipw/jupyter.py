@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import atexit
+import builtins
 import threading
 from collections import OrderedDict
 from typing import Any, Protocol
@@ -26,6 +27,10 @@ _enabled: set[str] = set()
 _bridge_installed = False
 _builtins_loaded = False
 _original_ipython_display: Any | None = None
+_original_builtins_import: Any | None = None
+_pyvista_import_hook_installed = False
+_pyvista_enabling = False
+_pyvista_import_depth = 0
 
 
 class JupyterEventLoop:
@@ -120,6 +125,11 @@ def install_jupyter_support() -> None:
     _load_builtin_extensions()
     # Re-enable registered extensions after a previous teardown.
     for name in tuple(_extensions):
+        if name == "pyvista":
+            # PyVista pulls in VTK/trame/aiohttp at setup time. Loading that
+            # stack during App startup races WebView2 creation on Windows.
+            _install_pyvista_lazy_hook()
+            continue
         try:
             enable_extension(name)
         except ImportError:
@@ -164,6 +174,7 @@ def uninstall_jupyter_support() -> None:
             except Exception:
                 pass
     _enabled.clear()
+    _uninstall_pyvista_lazy_hook()
 
     if not _bridge_installed:
         return
@@ -227,3 +238,69 @@ def _load_builtin_extensions() -> None:
         register_extension(BokehExtension(), enable=False)
     except ImportError:
         pass
+
+
+def _try_enable_pyvista() -> None:
+    """Enable the PyVista adapter once the library is imported."""
+    global _pyvista_enabling
+    if (
+        _pyvista_enabling
+        or "pyvista" not in _extensions
+        or "pyvista" in _enabled
+    ):
+        return
+    import sys
+
+    if "pyvista" not in sys.modules:
+        return
+    pv = sys.modules.get("pyvista")
+    if pv is None or not hasattr(pv, "global_theme"):
+        return
+    _pyvista_enabling = True
+    try:
+        enable_extension("pyvista")
+    except ImportError:
+        pass
+    finally:
+        _pyvista_enabling = False
+
+
+def _install_pyvista_lazy_hook() -> None:
+    """Defer PyVista setup until ``import pyvista`` (avoids VTK at App boot)."""
+    global _pyvista_import_hook_installed, _original_builtins_import
+    if _pyvista_import_hook_installed:
+        return
+    _original_builtins_import = builtins.__import__
+
+    def _hooked_import(
+        name: str,
+        globals: Any = None,
+        locals: Any = None,
+        fromlist: tuple[str, ...] = (),
+        level: int = 0,
+    ) -> Any:
+        global _pyvista_import_depth
+        assert _original_builtins_import is not None
+        track = name == "pyvista"
+        if track:
+            _pyvista_import_depth += 1
+        try:
+            module = _original_builtins_import(name, globals, locals, fromlist, level)
+        finally:
+            if track:
+                _pyvista_import_depth -= 1
+                if _pyvista_import_depth == 0:
+                    _try_enable_pyvista()
+        return module
+
+    builtins.__import__ = _hooked_import  # type: ignore[assignment]
+    _pyvista_import_hook_installed = True
+
+
+def _uninstall_pyvista_lazy_hook() -> None:
+    global _pyvista_import_hook_installed, _original_builtins_import
+    if not _pyvista_import_hook_installed or _original_builtins_import is None:
+        return
+    builtins.__import__ = _original_builtins_import
+    _original_builtins_import = None
+    _pyvista_import_hook_installed = False

@@ -104,23 +104,43 @@ class TestPyVista:
     def test_enable_sets_notebook_theme(self):
         pytest.importorskip("pyvista")
         import pyvista as pv
+        import scooby
 
         from tkipw.extensions.pyvista import enable_pyvista
 
         enable_pyvista()
         assert pv.global_theme.notebook is True
+        assert scooby.in_ipykernel() is True
+        # Plotter must take the Jupyter path (not a native VTK window).
+        plotter = pv.Plotter()
+        try:
+            assert plotter.notebook is True
+            assert plotter.off_screen is True
+        finally:
+            plotter.close()
 
     def test_remaps_unsafe_backends_to_client(self):
         pytest.importorskip("pyvista")
         from tkipw.extensions.pyvista import PyVistaExtension
 
         ext = PyVistaExtension()
+        ext._trame_available = True
         with pytest.warns(RuntimeWarning, match="client"):
             assert ext._coerce_backend("trame") == "client"
         with pytest.warns(RuntimeWarning, match="client"):
             assert ext._coerce_backend("server") == "client"
         assert ext._coerce_backend("client") == "client"
         assert ext._coerce_backend("html") == "html"
+        assert ext._coerce_backend(None) == "client"
+
+    def test_falls_back_to_html_without_trame(self):
+        pytest.importorskip("pyvista")
+        from tkipw.extensions.pyvista import PyVistaExtension
+
+        ext = PyVistaExtension()
+        ext._trame_available = False
+        with pytest.warns(RuntimeWarning, match="html"):
+            assert ext._coerce_backend("client") == "html"
 
     def test_transform_uses_loopback_html_host(self):
         pytest.importorskip("pyvista")
