@@ -24,6 +24,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox
 
 import ipywidgets as widgets
+import tkface
 from IPython.display import Markdown
 from tkwry import WebView
 
@@ -1330,10 +1331,29 @@ def _set_macos_app_name(name: str) -> None:
 class Playground:
     def __init__(self) -> None:
         _set_macos_app_name("tkipw")
+        # Before the first Tk window: awareness keeps Matplotlib TkAgg sized
+        # correctly. WebView bounds use tkwry Physical pixels on Windows.
+        # Embed-safe: do not call tkface.win.dpi(root).
+        tkface.win.enable_dpi_awareness()
         self.root = tk.Tk()
+        # Hide the window until the output App has been booted and the pane
+        # re-hidden. That way we can map the pane for WebView create without a
+        # visible open/close flash, and the first Run is not stalled on boot.
+        self._startup_cloaked = False
+        try:
+            self.root.attributes("-alpha", 0.0)
+            self._startup_cloaked = True
+        except tk.TclError:
+            pass
         self.root.title("tkipw · playground")
-        self.root.geometry("1100x700")
-        self.root.minsize(800, 500)
+        self.root.geometry(
+            f"{tkface.win.design_to_physical(1100)}x"
+            f"{tkface.win.design_to_physical(700)}"
+        )
+        self.root.minsize(
+            tkface.win.design_to_physical(800),
+            tkface.win.design_to_physical(500),
+        )
         self._minimap_var = tk.BooleanVar(self.root, value=True)
         self._word_wrap_var = tk.BooleanVar(self.root, value=True)
         self._dark_editor_var = tk.BooleanVar(self.root, value=True)
@@ -1344,6 +1364,7 @@ class Playground:
         self._save_dialog_active = False
         self._editor_ready = False
         self._status_ready = False
+        self._app_webview_ready = False
         self._busy = False
         self._stop_requested = False
         self._user_tk_roots: list[tk.Misc] = []
@@ -1356,19 +1377,16 @@ class Playground:
         self._build_menubar()
 
         # Independent status WebView — full window width under the paned area.
-        self._status_frame = tk.Frame(self.root, height=22, bg="#181818")
+        self._status_frame = tk.Frame(
+            self.root, height=tkface.win.design_to_physical(22), bg="#181818"
+        )
         self._status_frame.pack(side="bottom", fill="x")
         self._status_frame.pack_propagate(False)
-        self._status = WebView(
-            self._status_frame,
-            html=_status_html(),
-            ipc_handler=self._on_status_ipc,
-        )
 
         paned = tk.PanedWindow(
             self.root,
             orient="horizontal",
-            sashwidth=6,
+            sashwidth=tkface.win.design_to_physical(6),
             sashrelief="flat",
             bd=0,
             bg="#404040",
@@ -1380,50 +1398,39 @@ class Playground:
         self._editor_frame = left
         self._paned = paned
         self._output_frame = right
-        paned.add(left, minsize=280, stretch="always")
-        paned.add(right, minsize=280, stretch="always")
+        pane_min = tkface.win.design_to_physical(280)
+        paned.add(left, minsize=pane_min, stretch="always")
+        paned.add(right, minsize=pane_min, stretch="always")
+        # Start with the editor at full width (output pane hidden).
+        paned.paneconfigure(right, hide=True)
 
         left.pack_propagate(False)
         right.pack_propagate(False)
 
-        def _equal_sash() -> None:
-            self.root.update_idletasks()
-            w = paned.winfo_width()
-            if w > 1:
-                paned.sash_place(0, w // 2, 0)
-
-        self.root.after_idle(_equal_sash)
-
-        initial_tabs = [
+        self._editor_initial_tabs = [
             {"title": "README.md", "content": README_SAMPLE.lstrip("\n")},
             *[
                 {"title": f"{name}.py", "content": code.lstrip("\n")}
                 for name, code in SAMPLES.items()
             ],
         ]
-        self._editor = WebView(
-            left,
-            html=_editor_html(initial_tabs),
-            ipc_handler=self._on_editor_ipc,
+        # One WebView2 at a time on Windows: status → editor → output App.
+        self._editor: WebView | None = None
+        self._status = WebView(
+            self._status_frame,
+            html=_status_html(),
+            ipc_handler=self._on_status_ipc,
         )
 
-        # Defer the output App so status/editor WebViews finish native
-        # creation first (Windows WebView2 + VTK threads can GIL-crash).
         self._results = StackedOutput()
         self.app: App | None = None
+        self._app_create_scheduled = False
+        self._editor_create_scheduled = False
+        self._layout_sync_enabled = False
 
-        def _create_app() -> None:
-            self.app = App(
-                parent=right,
-                title="tkipw · playground",
-                display_mode="inline",
-            )
-            self.app.display(self._results)
-            self.root.after_idle(lambda: self._set_output_visible(False))
-
-        self.root.after_idle(_create_app)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self._install_shortcuts()
+        self.root.after(0, self._install_webview_resize_hooks)
 
     def _install_shortcuts(self) -> None:
         wrap = EditorShortcutBindings.wrap
@@ -1607,7 +1614,7 @@ class Playground:
         self._eval_editor("window.editorCopy && window.editorCopy();")
 
     def _paste(self) -> None:
-        if not self._editor_ready:
+        if not self._editor_ready or self._editor is None:
             return
         try:
             text = self.root.clipboard_get()
@@ -1628,13 +1635,18 @@ class Playground:
     def _apply_display_mode(self) -> None:
         mode = self._display_mode_var.get()
         if self.app is None:
+            # Window mode needs the App/bridge even with the pane hidden.
+            if mode == "window":
+                self._maybe_create_output_app(force=True)
             return
         self.app.set_display_mode(mode)
         # Inline needs the result pane; window mode gives the editor full width.
         self._set_output_visible(mode == "inline")
         self._set_status(f"display · {mode}")
 
-    def _set_output_visible(self, visible: bool) -> None:
+    def _set_output_visible(
+        self, visible: bool, *, flush: bool = True, sync_bounds: bool = True
+    ) -> None:
         self._output_visible_var.set(visible)
         self._eval_editor(
             "window.editorSetOutputVisible && "
@@ -1648,20 +1660,180 @@ class Playground:
         # Prefer pane hide over forget: native WKWebView overlays do not
         # follow forget/unmap cleanly (same approach as tkwry markdown_demo).
         paned.paneconfigure(output_frame, hide=not visible)
-        self.root.update_idletasks()
-        self._sync_webview_bounds()
+        # Never update_idletasks here: it re-enters WebView2 create on Windows.
+        del flush
         if visible:
+            # First show is when we boot the output App (avoids startup flash).
+            self._maybe_create_output_app()
+        if not sync_bounds or not self._layout_sync_enabled:
+            return
+        if visible:
+            self._output_sash_ratio = 0.5
+            self._place_output_sash()
+            self._schedule_webview_bounds_sync(passes=2)
 
             def place_sash() -> None:
-                width = paned.winfo_width()
-                if width > 1 and len(paned.panes()) > 1:
-                    paned.sash_place(0, width // 2, 0)
-                self._sync_webview_bounds()
+                self._place_output_sash()
+                self._schedule_webview_bounds_sync(passes=2)
 
-            self.root.after_idle(place_sash)
+            self.root.after(50, place_sash)
         else:
-            # Second pass after layout settles (native overlay lag).
-            self.root.after_idle(self._sync_webview_bounds)
+            self._schedule_webview_bounds_sync(passes=1)
+
+    def _reveal_after_startup(self) -> None:
+        """Show the main window once startup WebView boot is finished."""
+        if not self._startup_cloaked:
+            return
+        self._startup_cloaked = False
+        try:
+            self.root.attributes("-alpha", 1.0)
+        except tk.TclError:
+            pass
+
+    def _on_app_webview_ready(self) -> None:
+        self._app_webview_ready = True
+        self._layout_sync_enabled = True
+        if self._output_visible_var.get():
+            self._place_output_sash()
+        self._schedule_webview_bounds_sync(passes=2)
+        self._reveal_after_startup()
+
+    def _maybe_create_output_app(self, *, force: bool = False) -> None:
+        """Create the output App once editor/status are up.
+
+        Prefer an early *force* boot (pane mapped under the startup cloak) so
+        the first Run does not wait on WebView creation. A later show of the
+        pane is then only a layout change.
+        """
+        if self.app is not None or self._app_create_scheduled:
+            return
+        if not (self._status_ready and self._editor_ready):
+            return
+        if not force and not self._output_visible_var.get():
+            return
+        self._app_create_scheduled = True
+        # Short gap after editor create; keep this small — it is on the
+        # critical path for first-result latency when not pre-booted.
+        self.root.after(50, lambda: self._create_output_app(force=force))
+
+    def _create_editor_webview(self) -> None:
+        if self._editor is not None:
+            return
+        left = self._editor_frame
+        if left is None:
+            return
+        self._editor = WebView(
+            left,
+            html=_editor_html(self._editor_initial_tabs),
+            ipc_handler=self._on_editor_ipc,
+        )
+
+    def _create_output_app(self, *, force: bool = False) -> None:
+        if self.app is not None:
+            return
+        right = self._output_frame
+        paned = self._paned
+        if right is None or paned is None:
+            return
+        # WebView needs a mapped non-zero parent. Map for boot; re-hide after
+        # ready when the user still wants the pane closed.
+        restore_hidden = not self._output_visible_var.get()
+        if restore_hidden or force or self._output_visible_var.get():
+            paned.paneconfigure(right, hide=False)
+
+        def body() -> None:
+            if self.app is not None:
+                return
+            theme = "dark" if self._dark_output_var.get() else "light"
+            mode = self._display_mode_var.get()
+            if mode not in ("inline", "window"):
+                mode = "inline"
+            self.app = App(
+                parent=right,
+                title="tkipw · playground",
+                display_mode=mode,
+                theme=theme,
+            )
+            self.app.display(self._results)
+
+            def on_ready() -> None:
+                if restore_hidden and not self._output_visible_var.get():
+                    paned.paneconfigure(right, hide=True)
+                self._on_app_webview_ready()
+
+            self.app.when_ready(on_ready)
+
+        # Let Tk settle geometry without update_idletasks (WebView2 re-entrancy).
+        self.root.after(50, body)
+
+    def _schedule_webview_bounds_sync(self, *, passes: int = 1) -> None:
+        if not self._layout_sync_enabled:
+            return
+
+        def _run(remaining: int) -> None:
+            self._sync_webview_bounds()
+            if remaining > 1:
+                self.root.after(50, lambda: _run(remaining - 1))
+
+        self.root.after(50, lambda: _run(passes))
+
+    def _install_webview_resize_hooks(self) -> None:
+        self._bounds_sync_after_id: str | None = None
+        self._output_sash_ratio = 0.5
+
+        def _on_configure(event: tk.Event | None = None) -> None:
+            if not self._layout_sync_enabled:
+                return
+            # Ignore bubbled Configure from nested children — only act on the
+            # widgets we bound (root / paned / panes / status).
+            if event is not None and event.widget not in {
+                self.root,
+                self._paned,
+                self._editor_frame,
+                self._output_frame,
+                self._status_frame,
+            }:
+                return
+            if self._bounds_sync_after_id is not None:
+                try:
+                    self.root.after_cancel(self._bounds_sync_after_id)
+                except tk.TclError:
+                    pass
+            self._bounds_sync_after_id = self.root.after(50, self._on_layout_settle)
+
+        for widget in (
+            self.root,
+            self._paned,
+            self._editor_frame,
+            self._output_frame,
+            self._status_frame,
+        ):
+            if widget is not None:
+                widget.bind("<Configure>", _on_configure, add="+")
+
+    def _on_layout_settle(self) -> None:
+        self._bounds_sync_after_id = None
+        if not self._layout_sync_enabled:
+            return
+        if self._output_visible_var.get():
+            self._place_output_sash()
+        self._sync_webview_bounds()
+
+    def _place_output_sash(self) -> None:
+        """Keep the editor/output split as a ratio of the current paned width.
+
+        ``sash_place`` is absolute pixels; without re-placing on resize the sash
+        stays at the width from the last show (often the maximized width).
+        """
+        paned = self._paned
+        if paned is None or not self._output_visible_var.get():
+            return
+        width = paned.winfo_width()
+        if width <= 1 or len(paned.panes()) < 2:
+            return
+        ratio = getattr(self, "_output_sash_ratio", 0.5)
+        ratio = min(max(float(ratio), 0.2), 0.8)
+        paned.sash_place(0, int(width * ratio), 0)
 
     def _sync_webview_bounds(self) -> None:
         webs = [
@@ -1669,8 +1841,9 @@ class Playground:
             getattr(self, "_status", None),
         ]
         app = getattr(self, "app", None)
-        if app is not None:
-            webs.append(getattr(app, "webview", None))
+        app_web = getattr(app, "webview", None) if app is not None else None
+        if app_web is not None and self._app_webview_ready:
+            webs.append(app_web)
         for web in webs:
             if web is None:
                 continue
@@ -1741,7 +1914,7 @@ class Playground:
         self._save_active_tab(save_as=True)
 
     def _save_active_tab(self, *, save_as: bool) -> None:
-        if self._save_dialog_active or not self._editor_ready:
+        if self._save_dialog_active or not self._editor_ready or self._editor is None:
             return
         self._save_dialog_active = True
 
@@ -1798,21 +1971,34 @@ class Playground:
         )
 
     def _on_close(self) -> None:
-        try:
-            self._editor.destroy()
-        except Exception:
-            pass
+        self._close_matplotlib_figures()
+        if self._editor is not None:
+            try:
+                self._editor.destroy()
+            except Exception:
+                pass
         try:
             self._status.destroy()
         except Exception:
             pass
-        try:
-            self.app.destroy()
-        except Exception:
-            pass
+        if self.app is not None:
+            try:
+                self.app.destroy()
+            except Exception:
+                pass
         try:
             self.root.destroy()
         except tk.TclError:
+            pass
+
+    @staticmethod
+    def _close_matplotlib_figures() -> None:
+        """Close native TkAgg windows before tearing down the Playground root."""
+        try:
+            from matplotlib import pyplot as plt
+
+            plt.close("all")
+        except Exception:
             pass
 
     def _on_status_ipc(self, message: str) -> None:
@@ -1827,6 +2013,9 @@ class Playground:
             self._eval_status(
                 f"window.setStatusTheme && window.setStatusTheme({json.dumps(mode)});"
             )
+            if not self._editor_create_scheduled:
+                self._editor_create_scheduled = True
+                self.root.after(150, self._create_editor_webview)
         elif kind == "status_click":
             # Reserved for future status-item menus (language / EOL / …).
             return
@@ -1840,8 +2029,16 @@ class Playground:
         if kind == "ready":
             self._editor_ready = True
             self._apply_editor_options()
-            self._apply_output_theme()
-            self._set_output_visible(self._output_visible_var.get())
+            self._set_output_visible(
+                self._output_visible_var.get(), flush=False, sync_bounds=False
+            )
+            # When the window is alpha-cloaked, pre-boot the output App now
+            # (pane map is invisible). Otherwise wait until the pane is shown
+            # so we do not flash it — Run still starts without waiting on ready.
+            self._maybe_create_output_app(force=self._startup_cloaked)
+            if self._startup_cloaked:
+                # Safety: never stay invisible forever if App boot hangs.
+                self.root.after(8000, self._reveal_after_startup)
         elif kind == "tab":
             # Invalidate sticky run/save messages when the active tab changes.
             self._status_epoch += 1
@@ -1873,11 +2070,13 @@ class Playground:
             self._set_output_visible(not self._output_visible_var.get())
 
     def _eval_editor(self, script: str) -> None:
-        if not self._editor_ready:
+        if not self._editor_ready or self._editor is None:
             return
         self._editor.focus()
 
         def run() -> None:
+            if self._editor is None:
+                return
             try:
                 self._editor.eval_js(script)
             except Exception:
@@ -1909,36 +2108,67 @@ class Playground:
             self._set_status(status)
 
     def _on_run(self) -> None:
-        if self._busy or not self._editor_ready or self.app is None:
+        if self._busy or not self._editor_ready or self._editor is None:
             return
-        if self.app.display_mode == "inline" and not self._output_visible_var.get():
-            self._set_output_visible(True)
+        mode = self._display_mode_var.get()
+        inline = mode != "window"
+        if inline:
+            if not self._output_visible_var.get():
+                self._set_output_visible(True)
+            else:
+                self._maybe_create_output_app()
+        else:
+            self._maybe_create_output_app(force=True)
         self._busy = True
         self._stop_requested = False
         self._run_status_epoch = self._status_epoch
         self._set_run_state(busy=True, status="running…")
 
-        def on_info(result: str) -> None:
-            info = _parse_eval_json_object(result)
-            if not info:
-                self._finish("no active tab")
+        def start_fetch() -> None:
+            if self._stop_requested:
+                self._finish("stopped")
                 return
-            code = str(info.get("content", ""))
-            title = str(info.get("title", "<playground>"))
-            # Main thread: VTK/Cocoa + pyvista export_html/trame require it.
-            if title.lower().endswith((".md", ".markdown")):
-                self.root.after(0, lambda: self._render_markdown(code, title))
-            else:
-                self.root.after(0, lambda: self._exec_code(code, title))
 
-        def on_error(_exc: BaseException) -> None:
-            self._finish("editor eval failed")
+            def on_info(result: str) -> None:
+                info = _parse_eval_json_object(result)
+                if not info:
+                    self._finish("no active tab")
+                    return
+                code = str(info.get("content", ""))
+                title = str(info.get("title", "<playground>"))
+                # Main thread: VTK/Cocoa + pyvista export_html/trame require it.
+                if title.lower().endswith((".md", ".markdown")):
+                    self.root.after(0, lambda: self._render_markdown(code, title))
+                else:
+                    self.root.after(0, lambda: self._exec_code(code, title))
 
-        self._editor.eval_js_with_callback(
-            "window.editorGetActiveTabInfo && window.editorGetActiveTabInfo()",
-            on_info,
-            on_error=on_error,
-        )
+            def on_error(_exc: BaseException) -> None:
+                self._finish("editor eval failed")
+
+            assert self._editor is not None
+            self._editor.eval_js_with_callback(
+                "window.editorGetActiveTabInfo && window.editorGetActiveTabInfo()",
+                on_info,
+                on_error=on_error,
+            )
+
+        def wait_app_instance() -> None:
+            """Wait only until App() exists; display traffic queues until ready."""
+            if self._stop_requested:
+                self._finish("stopped")
+                return
+            if self.app is None:
+                self.root.after(20, wait_app_instance)
+                return
+            start_fetch()
+
+        # Do not block on WebView ready — outbound messages queue and flush on
+        # ready. Blocking here made the first Run feel much slower than before.
+        if self.app is None:
+            self._set_status("starting output…")
+            wait_app_instance()
+            return
+        start_fetch()
 
     def _on_stop(self) -> None:
         if not self._busy:

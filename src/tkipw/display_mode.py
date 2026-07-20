@@ -15,6 +15,7 @@ DisplayMode = Literal["inline", "window"]
 
 _default_display_mode: DisplayMode = "inline"
 _window_serial = 0
+_MIN_POPUP_SIZE = (480, 320)
 
 # Readable default for Markdown documents / other unsized HTML output.
 # Folium's common 60% aspect stays as the generic fallback below.
@@ -166,12 +167,37 @@ def open_display_window(
     # Cloak before the idle map so Windows does not flash an empty shell.
     cloaked = _cloak_window(top)
     top.title(win_title)
-    # Keep large tables usable on the current monitor; compact tables retain
-    # their natural inferred size.
-    max_w = max(min(top.winfo_screenwidth() - 80, 1200), 320)
-    max_h = max(min(top.winfo_screenheight() - 120, 800), 240)
-    win_w = min(max(int(win_w), 180), max_w)
-    win_h = min(max(int(win_h), 100), max_h)
+    # Design-sized pop-ups (markdown / defaults / tables) need design→physical
+    # under DPI awareness. Raster content (Pillow ``Image.size``) is already in
+    # bitmap pixels and is shown with ``max-width:100%`` — scaling the window
+    # would only upscale the image.
+    import tkface
+
+    raster = _has_raster_pixel_size(*(sources or ()), *widgets)
+    if tkface.win.is_process_dpi_aware() and not raster:
+        win_w = tkface.win.design_to_physical(win_w)
+        win_h = tkface.win.design_to_physical(win_h)
+        min_w = tkface.win.design_to_physical(_MIN_POPUP_SIZE[0])
+        min_h = tkface.win.design_to_physical(_MIN_POPUP_SIZE[1])
+        max_w = max(
+            min(top.winfo_screenwidth() - 80, tkface.win.design_to_physical(1200)),
+            min_w,
+        )
+        max_h = max(
+            min(top.winfo_screenheight() - 120, tkface.win.design_to_physical(800)),
+            min_h,
+        )
+    elif tkface.win.is_process_dpi_aware() and raster:
+        # Image pixels ≈ physical window; tiny floor only, no design min.
+        min_w, min_h = 120, 80
+        max_w = max(top.winfo_screenwidth() - 80, min_w)
+        max_h = max(top.winfo_screenheight() - 120, min_h)
+    else:
+        min_w, min_h = (120, 80) if raster else _MIN_POPUP_SIZE
+        max_w = max(min(top.winfo_screenwidth() - 80, 1200), 320)
+        max_h = max(min(top.winfo_screenheight() - 120, 800), 240)
+    win_w = min(max(int(win_w), min_w), max_w)
+    win_h = min(max(int(win_h), min_h), max_h)
     top.geometry(f"{win_w}x{win_h}")
 
     frame = tk.Frame(top)
@@ -231,6 +257,24 @@ def infer_window_size(*objs: Any) -> tuple[int, int]:
         if size is not None:
             return size
     return _DEFAULT_WINDOW_SIZE
+
+
+def _has_raster_pixel_size(*objs: Any) -> bool:
+    """True when a source is a bitmap with intrinsic ``size`` (e.g. Pillow)."""
+    for obj in objs:
+        module = type(obj).__module__ or ""
+        if not (module.startswith("PIL") or type(obj).__name__ == "Image"):
+            continue
+        size = getattr(obj, "size", None)
+        if (
+            isinstance(size, tuple)
+            and len(size) == 2
+            and all(isinstance(v, int) for v in size)
+            and size[0] > 0
+            and size[1] > 0
+        ):
+            return True
+    return False
 
 
 def _size_from_object(obj: Any) -> tuple[int, int] | None:
@@ -465,8 +509,8 @@ def _size_from_table_html(html: str) -> tuple[int, int] | None:
         widths.append(min(max(longest * 7 + 24, 52), 280))
 
     # 12px compact-shell padding on each side; row height includes borders.
-    desired_width = sum(widths) + 24
-    desired_height = len(rows) * 30 + 24
+    desired_width = sum(widths) + 48
+    desired_height = len(rows) * 32 + 48
     return min(max(desired_width, 180), 1100), min(max(desired_height, 100), 720)
 
 

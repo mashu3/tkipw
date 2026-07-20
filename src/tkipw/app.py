@@ -28,7 +28,7 @@ _active_apps: list[App] = []
 
 _SHELL = """\
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="__THEME__">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -45,7 +45,7 @@ _SHELL = """\
 """
 
 
-def _load_shell_html(*, compact: bool = False) -> str:
+def _load_shell_html(*, compact: bool = False, theme: str = "light") -> str:
     runtime = _HTML_DIR / "runtime.js"
     css_path = _HTML_DIR / "runtime.css"
     if not runtime.exists():
@@ -332,10 +332,12 @@ body.tkipw-compact #tkipw-widgets .widget-html pre {
 
 /* Maps / charts / images: edge-to-edge, no text chrome.
    Do not match bare ``img`` — ipyleaflet tiles/markers are also ``img`` and
-   must keep Leaflet's pixel sizes (``width/height: 100%`` collapses them). */
+   must keep Leaflet's pixel sizes (``width/height: 100%`` collapses them).
+   Pillow uses ``img.tkipw-raster`` instead. */
 body.tkipw-compact #tkipw-widgets:has(iframe),
 body.tkipw-compact #tkipw-widgets:has(.widget-image),
-body.tkipw-compact #tkipw-widgets:has(.leaflet-container) {
+body.tkipw-compact #tkipw-widgets:has(.leaflet-container),
+body.tkipw-compact #tkipw-widgets:has(img.tkipw-raster) {
   padding: 0;
   overflow: hidden;
 }
@@ -347,6 +349,10 @@ body.tkipw-compact #tkipw-widgets:has(.widget-image) .jupyter-widgets,
 body.tkipw-compact #tkipw-widgets:has(.widget-image) .widget-html,
 body.tkipw-compact #tkipw-widgets:has(.widget-image) .widget-html > div,
 body.tkipw-compact #tkipw-widgets:has(.widget-image) .widget-html-content,
+body.tkipw-compact #tkipw-widgets:has(img.tkipw-raster) .jupyter-widgets,
+body.tkipw-compact #tkipw-widgets:has(img.tkipw-raster) .widget-html,
+body.tkipw-compact #tkipw-widgets:has(img.tkipw-raster) .widget-html > div,
+body.tkipw-compact #tkipw-widgets:has(img.tkipw-raster) .widget-html-content,
 body.tkipw-compact #tkipw-widgets:has(.leaflet-container) .leaflet-widgets {
   position: absolute !important;
   inset: 0 !important;
@@ -377,22 +383,29 @@ body.tkipw-compact #tkipw-widgets:has(.leaflet-container) .leaflet-container {
   height: 100% !important;
 }
 body.tkipw-compact .jupyter-widgets.widget-image img,
-body.tkipw-compact .widget-image img {
+body.tkipw-compact .widget-image img,
+body.tkipw-compact img.tkipw-raster {
   max-width: none !important;
   width: 100% !important;
   height: 100% !important;
-  object-fit: contain;
+  object-fit: fill;
+  display: block !important;
 }
 """
     # Avoid </script> in source breaking the HTML shell
     js = js.replace("</script>", "<\\/script>")
     body = '<body class="tkipw-compact">' if compact else "<body>"
+    if theme not in ("light", "dark"):
+        theme = "light"
     return (
-        _SHELL.replace("__CSS__", css).replace("__JS__", js).replace("<body>", body, 1)
+        _SHELL.replace("__THEME__", theme)
+        .replace("__CSS__", css)
+        .replace("__JS__", js)
+        .replace("<body>", body, 1)
     )
 
 
-def _shell_document_url(*, compact: bool = False) -> str:
+def _shell_document_url(*, compact: bool = False, theme: str = "light") -> str:
     """Serve the widget shell over loopback and return its URL.
 
     WebView2's ``NavigateToString`` (used by ``html=`` / ``load_html``) rejects
@@ -401,7 +414,7 @@ def _shell_document_url(*, compact: bool = False) -> str:
     """
     from .html_host import get_html_host
 
-    return get_html_host().mount(_load_shell_html(compact=compact))
+    return get_html_host().mount(_load_shell_html(compact=compact, theme=theme))
 
 
 class App:
@@ -423,6 +436,7 @@ class App:
         devtools: bool = False,
         display_mode: str = "inline",
         compact: bool = False,
+        theme: str = "light",
     ) -> None:
         install_comm_backend()
 
@@ -430,7 +444,9 @@ class App:
 
         self.display_mode = validate_display_mode(display_mode)
         self.compact = compact
-        self.theme = "light"
+        if theme not in ("light", "dark"):
+            raise ValueError(f"theme must be 'light' or 'dark', got {theme!r}")
+        self.theme = theme
         self._ready = False
         self._ready_callbacks: list[Callable[[], None]] = []
         self._destroyed = False
@@ -448,10 +464,17 @@ class App:
         container = parent if parent is not None else root
         self._owns_root = container is None
         if container is None:
+            import tkface
+
+            # Embed-safe DPI: awareness only — do not call tkface.win.dpi(root).
+            tkface.win.enable_dpi_awareness()
             self.root = tk.Tk()
             self._container: tk.Misc = self.root
             self.root.title(title)
-            self.root.geometry(f"{width}x{height}")
+            self.root.geometry(
+                f"{tkface.win.design_to_physical(width)}x"
+                f"{tkface.win.design_to_physical(height)}"
+            )
             # Withdraw before packing the WebView so Windows does not flash an
             # empty host window (content lives in Toplevel pop-ups).
             if self.display_mode == "window":
@@ -464,9 +487,11 @@ class App:
         self._frame.pack(fill="both", expand=True)
 
         # Prefer url= over html=: see ``_shell_document_url``.
+        # Bake theme into the shell so ready/flush does not need an early
+        # eval_js just to flip data-theme (that raced widget delivery).
         self.webview = WebView(
             self._frame,
-            url=_shell_document_url(compact=compact),
+            url=_shell_document_url(compact=compact, theme=self.theme),
             ipc_handler=self._on_ipc,
             on_page_load=self._on_page_load,
             on_navigation=lambda _url: True,
@@ -561,6 +586,10 @@ class App:
         channel = msg.get("channel")
         if channel == "ready":
             self._ready = True
+            # A synchronous eval_js before the first flush is required: on
+            # WKWebView/WebView2 the initial queued display batch is otherwise
+            # accepted by eval_js but never applied to the DOM.
+            # Theme is already baked into the shell HTML; this is a no-op set.
             self._apply_theme()
             self._schedule_flush()
             self._fire_ready_callbacks()

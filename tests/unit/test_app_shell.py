@@ -23,3 +23,9 @@ def test_shell_document_url_serves_runtime_over_loopback():
         body = resp.read().decode("utf-8")
     assert "tkipw-root" in body
     assert "Starting widget runtime" in body
+    assert 'data-theme="light"' in body
+
+
+def test_shell_html_bakes_theme_attribute():
+    assert 'data-theme="dark"' in _load_shell_html(theme="dark")
+    assert 'data-theme="light"' in _load_shell_html(theme="light")

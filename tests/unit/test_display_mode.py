@@ -104,6 +104,18 @@ def test_small_html_table_gets_compact_window():
     assert 100 <= height < 250
 
 
+def test_pillow_image_keeps_raster_pixel_size():
+    pytest.importorskip("PIL")
+    from PIL import Image
+
+    from tkipw.display_mode import _has_raster_pixel_size, infer_window_size
+
+    im = Image.new("RGB", (640, 320), "white")
+    assert infer_window_size(im) == (640, 320)
+    assert _has_raster_pixel_size(im) is True
+    assert _has_raster_pixel_size(widgets.HTML(value="<p>x</p>")) is False
+
+
 def test_large_html_table_is_capped_and_scrollable_sized():
     from tkipw.display_mode import infer_window_size
 

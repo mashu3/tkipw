@@ -177,6 +177,7 @@ class TestPillow:
         assert isinstance(widget, widgets.HTML)
         assert "data:image/png;base64," in widget.value
         assert "Pillow image" in widget.value
+        assert 'class="tkipw-raster"' in widget.value
 
     def test_show_routes_to_output(self):
         Image = pytest.importorskip("PIL.Image")

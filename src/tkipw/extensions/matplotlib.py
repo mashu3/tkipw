@@ -40,6 +40,8 @@ class MatplotlibExtension:
         self.force_agg = self.mode == "inline"
         self._setup = False
         self._original_show: Callable[..., Any] | None = None
+        self._original_figure: Callable[..., Any] | None = None
+        self._window_ui_scale = 1.0
 
     def set_mode(self, mode: MatplotlibDisplayMode) -> None:
         """Switch between ``inline`` and ``window``, re-applying the backend."""
@@ -65,7 +67,32 @@ class MatplotlibExtension:
                 matplotlib.use("TkAgg", force=True)
             except Exception:
                 pass
-            # Leave ``plt.show`` alone so TkAgg pops one window per figure.
+            # Prefer process DPI awareness (enabled before Tk). Only fall back
+            # to enlarging figure DPI when awareness could not be set.
+            import tkface
+            from matplotlib import pyplot as plt
+
+            self._window_ui_scale = float(tkface.win.get_windows_scale_factor())
+            if (
+                not tkface.win.is_process_dpi_aware()
+                and self._window_ui_scale != 1.0
+                and self._original_figure is None
+            ):
+                self._original_figure = plt.figure
+                scale = self._window_ui_scale
+                original_figure = self._original_figure
+
+                def figure(*args: Any, **kwargs: Any) -> Any:
+                    dpi = kwargs.get("dpi")
+                    if dpi is None:
+                        dpi = matplotlib.rcParams.get("figure.dpi", 100)
+                    try:
+                        kwargs["dpi"] = float(dpi) * scale
+                    except (TypeError, ValueError):
+                        pass
+                    return original_figure(*args, **kwargs)
+
+                plt.figure = figure  # type: ignore[assignment]
             self._setup = True
             return
 
@@ -101,6 +128,14 @@ class MatplotlibExtension:
     def teardown(self) -> None:
         if not self._setup:
             return
+        if self.mode == "window":
+            _close_all_figures()
+        if self._original_figure is not None:
+            from matplotlib import pyplot as plt
+
+            plt.figure = self._original_figure  # type: ignore[assignment]
+            self._original_figure = None
+            self._window_ui_scale = 1.0
         if self._original_show is not None:
             from matplotlib import pyplot as plt
 
@@ -127,6 +162,15 @@ class MatplotlibExtension:
                 )
             )
         return obj
+
+
+def _close_all_figures() -> None:
+    try:
+        from matplotlib import pyplot as plt
+
+        plt.close("all")
+    except Exception:
+        pass
 
 
 def _validate_mode(mode: str) -> MatplotlibDisplayMode:

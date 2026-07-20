@@ -59,8 +59,8 @@ class PillowExtension:
         encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
         return widgets.HTML(
             value=(
-                '<img alt="Pillow image" '
-                'style="max-width:100%;height:auto;display:block" '
+                '<img class="tkipw-raster" alt="Pillow image" '
+                'style="display:block;width:100%;height:auto" '
                 f'src="data:image/png;base64,{encoded}"/>'
             )
         )
