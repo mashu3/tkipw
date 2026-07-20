@@ -31,6 +31,9 @@ def _cloak_window(win: Any) -> bool:
     """
     try:
         win.attributes("-alpha", 0.0)
+        # X11/Xvfb may accept the call but leave alpha at 1.0.
+        if float(win.attributes("-alpha")) > 0.0:
+            return False
         return True
     except Exception:
         return False

@@ -243,11 +243,7 @@ def _load_builtin_extensions() -> None:
 def _try_enable_pyvista() -> None:
     """Enable the PyVista adapter once the library is imported."""
     global _pyvista_enabling
-    if (
-        _pyvista_enabling
-        or "pyvista" not in _extensions
-        or "pyvista" in _enabled
-    ):
+    if _pyvista_enabling or "pyvista" not in _extensions or "pyvista" in _enabled:
         return
     import sys
 
