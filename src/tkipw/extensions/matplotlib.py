@@ -82,9 +82,7 @@ class MatplotlibExtension:
                     import tkface
                     from matplotlib import pyplot as plt
 
-                    self._window_ui_scale = float(
-                        tkface.win.get_windows_scale_factor()
-                    )
+                    self._window_ui_scale = float(tkface.win.get_windows_scale_factor())
                     if (
                         not tkface.win.is_process_dpi_aware()
                         and self._window_ui_scale != 1.0

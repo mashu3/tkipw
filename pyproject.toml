@@ -13,7 +13,7 @@ authors = [{ name = "mashu3" }]
 keywords = ["ipywidgets", "anywidget", "tkwry", "tkinter", "webview"]
 dependencies = [
   "tkwry>=0.1.0",
-  "tkface>=0.2.0",
+  "tkface>=0.2.1",
   "ipywidgets>=8.0,<9",
   "comm>=0.2",
   "traitlets>=5.0",
