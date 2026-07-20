@@ -391,6 +391,18 @@ body.tkipw-compact .widget-image img {
     )
 
 
+def _shell_document_url(*, compact: bool = False) -> str:
+    """Serve the widget shell over loopback and return its URL.
+
+    WebView2's ``NavigateToString`` (used by ``html=`` / ``load_html``) rejects
+    payloads larger than 2 MB.  The bundled runtime exceeds that, so the shell
+    must be loaded via ``url=`` instead.
+    """
+    from .html_host import get_html_host
+
+    return get_html_host().mount(_load_shell_html(compact=compact))
+
+
 class App:
     """Host ipywidgets / anywidget UIs inside a tkwry WebView.
 
@@ -445,10 +457,10 @@ class App:
         self._frame = tk.Frame(self._container)
         self._frame.pack(fill="both", expand=True)
 
-        html = _load_shell_html(compact=compact)
+        # Prefer url= over html=: see ``_shell_document_url``.
         self.webview = WebView(
             self._frame,
-            html=html,
+            url=_shell_document_url(compact=compact),
             ipc_handler=self._on_ipc,
             on_page_load=self._on_page_load,
             on_navigation=lambda _url: True,

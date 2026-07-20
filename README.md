@@ -280,6 +280,4 @@ Built on [tkwry](https://github.com/mashu3/tkwry).
 
 [mashu3](https://github.com/mashu3)
 
-## Contributors
-
 [![Contributors](https://contrib.rocks/image?repo=mashu3/tkipw)](https://github.com/mashu3/tkipw/graphs/contributors)
