@@ -59,6 +59,24 @@ def _create_tk_root():
     raise last_err
 
 
+@pytest.fixture(autouse=True)
+def reset_comm_backend():
+    """Reset comm_backend globals after each test to avoid cross-test leakage."""
+    yield
+    from tkipw.comm_backend import (
+        install_comm_backend,
+        reset_comms,
+        set_bridge,
+        uninstall_comm_backend,
+    )
+
+    reset_comms()
+    set_bridge(None)
+    uninstall_comm_backend()
+    # Restore the post-``import tkipw`` default so later tests keep TkwryComm.
+    install_comm_backend()
+
+
 @pytest.fixture
 def tk_root():
     import tkinter as tk

@@ -46,13 +46,9 @@ __all__ = [
     "get_extension",
     "install_jupyter_support",
     "uninstall_jupyter_support",
-    "enable_matplotlib",
-    "matplotlib_inline",
-    "matplotlib_window",
-    "enable_pyvista",
-    "enable_pillow",
-    "enable_altair",
-    "enable_bokeh",
+    # Lazy extension helpers (enable_matplotlib, …) are available via
+    # ``from tkipw import enable_*`` / ``__getattr__``, but omitted here so
+    # ``from tkipw import *`` does not pull optional heavy dependencies.
 ]
 __version__ = "0.0.1"
 
