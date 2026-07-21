@@ -131,7 +131,7 @@ def test_large_html_table_is_capped_and_scrollable_sized():
 
 def test_pandas_window_tracks_rendered_table_size():
     pd = pytest.importorskip("pandas")
-    from tkipw.display_mode import infer_window_size
+    from tkipw.display_mode import _has_html_table, infer_window_size
     from tkipw.output import to_widget
 
     small = pd.DataFrame({"city": ["Tokyo", "Osaka"], "sales": [120, 88]})
@@ -139,12 +139,19 @@ def test_pandas_window_tracks_rendered_table_size():
         {f"column_{i}": [f"value-{row}-{i}" for row in range(40)] for i in range(8)}
     )
 
+    assert _has_html_table(small) is True
+    assert _has_html_table(to_widget(small)) is True
+    assert _has_html_table(widgets.HTML(value="<p>no table</p>")) is False
+
     small_size = infer_window_size(to_widget(small))
     large_size = infer_window_size(to_widget(large))
     assert large_size[0] > small_size[0]
     assert large_size[1] > small_size[1]
     assert large_size[0] <= 1100
     assert large_size[1] <= 720
+    # Small frames must stay under the old 480×320 design floor.
+    assert small_size[0] < 480
+    assert small_size[1] < 320
 
 
 def test_markdown_window_uses_document_default_not_table():

@@ -174,7 +174,9 @@ def open_display_window(
     import tkface
 
     raster = _has_raster_pixel_size(*(sources or ()), *widgets)
-    if tkface.win.is_process_dpi_aware() and not raster:
+    # Tables size to their cells; the 480×320 design floor leaves empty chrome.
+    tight = raster or _has_html_table(*(sources or ()), *widgets)
+    if tkface.win.is_process_dpi_aware() and not tight:
         win_w = tkface.win.design_to_physical(win_w)
         win_h = tkface.win.design_to_physical(win_h)
         min_w = tkface.win.design_to_physical(_MIN_POPUP_SIZE[0])
@@ -187,13 +189,20 @@ def open_display_window(
             min(top.winfo_screenheight() - 120, tkface.win.design_to_physical(800)),
             min_h,
         )
-    elif tkface.win.is_process_dpi_aware() and raster:
-        # Image pixels ≈ physical window; tiny floor only, no design min.
+    elif tkface.win.is_process_dpi_aware() and tight:
+        # Content pixels ≈ physical window; tiny floor only, no design min.
+        # Raster bitmaps skip design→physical; HTML tables still use design px.
+        if not raster:
+            win_w = tkface.win.design_to_physical(win_w)
+            win_h = tkface.win.design_to_physical(win_h)
         min_w, min_h = 120, 80
+        if not raster:
+            min_w = tkface.win.design_to_physical(min_w)
+            min_h = tkface.win.design_to_physical(min_h)
         max_w = max(top.winfo_screenwidth() - 80, min_w)
         max_h = max(top.winfo_screenheight() - 120, min_h)
     else:
-        min_w, min_h = (120, 80) if raster else _MIN_POPUP_SIZE
+        min_w, min_h = (120, 80) if tight else _MIN_POPUP_SIZE
         max_w = max(min(top.winfo_screenwidth() - 80, 1200), 320)
         max_h = max(min(top.winfo_screenheight() - 120, 800), 240)
     win_w = min(max(int(win_w), min_w), max_w)
@@ -272,6 +281,25 @@ def _has_raster_pixel_size(*objs: Any) -> bool:
             and all(isinstance(v, int) for v in size)
             and size[0] > 0
             and size[1] > 0
+        ):
+            return True
+    return False
+
+
+def _has_html_table(*objs: Any) -> bool:
+    """True when a source is a pandas HTML table sized to its cells."""
+    for obj in objs:
+        module = type(obj).__module__ or ""
+        if module.startswith("pandas.") or module == "pandas":
+            # DataFrame / Series / Styler — window should hug ``_repr_html_``.
+            if callable(getattr(obj, "_repr_html_", None)):
+                return True
+        value = getattr(obj, "value", None)
+        # ``to_widget(df)`` → HTML with ``table.dataframe`` (not Markdown tables).
+        if (
+            isinstance(value, str)
+            and "<table" in value.lower()
+            and "dataframe" in value.lower()
         ):
             return True
     return False
@@ -545,9 +573,9 @@ def _size_from_table_html(html: str) -> tuple[int, int] | None:
         # are capped per column; the table/window then scrolls.
         widths.append(min(max(longest * 7 + 24, 52), 280))
 
-    # 12px compact-shell padding on each side; row height includes borders.
-    desired_width = sum(widths) + 48
-    desired_height = len(rows) * 32 + 48
+    # Compact shells are edge-to-edge for ``table.dataframe``; size to cells.
+    desired_width = sum(widths) + 8
+    desired_height = len(rows) * 32 + 8
     return min(max(desired_width, 180), 1100), min(max(desired_height, 100), 720)
 
 

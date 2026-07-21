@@ -56,3 +56,15 @@ def test_compact_shell_zero_pads_canvas_and_bqplot():
     # Stretch-to-fill is for maps/images only — not canvas/bqplot.
     assert ":has(canvas) .jupyter-widgets" not in _SHELL_CSS
     assert ":has(.bqplot) .jupyter-widgets" not in _SHELL_CSS
+
+
+def test_shell_styles_pandas_dataframe_like_jupyter():
+    from tkipw.app import _SHELL_CSS
+
+    assert "table.dataframe" in _SHELL_CSS
+    assert "border-collapse: collapse" in _SHELL_CSS
+    assert "tbody tr:nth-child(odd)" in _SHELL_CSS
+    assert "--tkipw-table-stripe" in _SHELL_CSS
+    assert ":has(table.dataframe)" in _SHELL_CSS
+    # Left-aligned in the pane (not Jupyter's centered ``margin: auto``).
+    assert "table.dataframe {\n  margin: 0;" in _SHELL_CSS

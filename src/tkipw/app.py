@@ -72,6 +72,8 @@ html, body {
   --tkipw-hosted-bg: #ffffff;
   --tkipw-widget-label: #333333;
   --tkipw-link: #0969da;
+  --tkipw-table-stripe: #f5f5f5;
+  --tkipw-table-hover: rgba(66, 165, 245, 0.2);
 }
 html[data-theme="dark"] {
   --tkipw-bg: #1e1e1e;
@@ -86,6 +88,8 @@ html[data-theme="dark"] {
   --tkipw-hosted-bg: #1e1e1e;
   --tkipw-widget-label: #cccccc;
   --tkipw-link: #58a6ff;
+  --tkipw-table-stripe: #2a2a2a;
+  --tkipw-table-hover: rgba(66, 165, 245, 0.18);
 }
 #tkipw-root {
   box-sizing: border-box;
@@ -304,6 +308,43 @@ html[data-theme="dark"] {
   padding: 5px 9px;
   border: 1px solid var(--tkipw-border);
 }
+/* Pandas / Styler HTML mirrors Jupyter notebook ``.rendered_html table``.
+   Override the legacy ``border="1"`` look from ``DataFrame._repr_html_``. */
+#tkipw-widgets table.dataframe {
+  margin: 0;
+  border: none !important;
+  border-collapse: collapse;
+  border-spacing: 0;
+  color: var(--tkipw-fg);
+  font-size: 12px;
+  line-height: normal;
+  background: transparent;
+}
+#tkipw-widgets table.dataframe thead {
+  border-bottom: 1px solid var(--tkipw-border);
+  vertical-align: bottom;
+}
+#tkipw-widgets table.dataframe th,
+#tkipw-widgets table.dataframe td {
+  text-align: right;
+  vertical-align: middle;
+  padding: 0.5em;
+  line-height: normal;
+  white-space: normal;
+  max-width: none;
+  border: none !important;
+  color: inherit;
+  background: transparent;
+}
+#tkipw-widgets table.dataframe th {
+  font-weight: bold;
+}
+#tkipw-widgets table.dataframe tbody tr:nth-child(odd) {
+  background: var(--tkipw-table-stripe);
+}
+#tkipw-widgets table.dataframe tbody tr:hover {
+  background: var(--tkipw-table-hover);
+}
 #tkipw-widgets .tkipw-markdown a {
   color: var(--tkipw-link);
 }
@@ -371,18 +412,19 @@ body.tkipw-compact #tkipw-widgets .widget-html pre {
   line-height: 1.45;
 }
 
-/* Maps / charts / images: edge-to-edge, no text chrome.
+/* Maps / charts / images / tables: edge-to-edge, no text chrome.
    Do not match bare ``img`` — ipyleaflet tiles/markers are also ``img`` and
    must keep Leaflet's pixel sizes (``width/height: 100%`` collapses them).
    Pillow uses ``img.tkipw-raster`` instead.
-   ``canvas`` / ``.bqplot`` only clear padding (pixel-sized content); do not
-   stretch them to 100% like maps — that would distort drawing coordinates. */
+   ``canvas`` / ``.bqplot`` / ``table.dataframe`` only clear padding
+   (pixel- or content-sized); do not stretch them to 100% like maps. */
 body.tkipw-compact #tkipw-widgets:has(iframe),
 body.tkipw-compact #tkipw-widgets:has(.widget-image),
 body.tkipw-compact #tkipw-widgets:has(.leaflet-container),
 body.tkipw-compact #tkipw-widgets:has(img.tkipw-raster),
 body.tkipw-compact #tkipw-widgets:has(canvas),
-body.tkipw-compact #tkipw-widgets:has(.bqplot) {
+body.tkipw-compact #tkipw-widgets:has(.bqplot),
+body.tkipw-compact #tkipw-widgets:has(table.dataframe) {
   padding: 0;
   overflow: hidden;
 }

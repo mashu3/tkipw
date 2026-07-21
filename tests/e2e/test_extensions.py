@@ -114,6 +114,18 @@ def test_pandas_dataframe_renders_table(app):
     display(pd.DataFrame({"city": ["Tokyo", "Osaka"], "sales": [120, 88]}))
     assert wait_for_selector(app, "#tkipw-widgets table"), "pandas table missing"
     assert wait_for_html(app, "Tokyo")
+    style = eval_json(
+        app,
+        "(function(){var t=document.querySelector('table.dataframe');"
+        "if(!t)return null;var cs=getComputedStyle(t);"
+        "var td=t.querySelector('td');"
+        "return {collapse:cs.borderCollapse, border:cs.borderTopWidth,"
+        "pad:td&&getComputedStyle(td).padding};})()",
+        steps=8,
+    )
+    assert isinstance(style, dict)
+    assert style.get("collapse") == "collapse"
+    assert style.get("border") in ("0px", "0")
 
 
 def test_altair_chart_hosts_iframe(app):

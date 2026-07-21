@@ -24,6 +24,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   toolbar Save and similar)
 - Drop compact-shell padding for ipycanvas / bqplot so window-mode pop-ups are
   edge-to-edge like maps and images
+- Style pandas ``DataFrame`` HTML like Jupyter (collapsed borders, zebra rows)
+  instead of the raw ``border="1"`` table look
+- Left-align pandas tables; drop window-mode padding and the 480×320 floor so
+  pop-ups hug the table
 - Serve `runtime.js` / `runtime.css` as separate loopback assets (HTML stays
   small) so large bundles still boot in desktop WebViews
 - Accept frontend-initiated ``comm_open`` (e.g. bqplot toolbar ``PanZoom``) so
