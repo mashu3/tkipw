@@ -374,11 +374,15 @@ body.tkipw-compact #tkipw-widgets .widget-html pre {
 /* Maps / charts / images: edge-to-edge, no text chrome.
    Do not match bare ``img`` — ipyleaflet tiles/markers are also ``img`` and
    must keep Leaflet's pixel sizes (``width/height: 100%`` collapses them).
-   Pillow uses ``img.tkipw-raster`` instead. */
+   Pillow uses ``img.tkipw-raster`` instead.
+   ``canvas`` / ``.bqplot`` only clear padding (pixel-sized content); do not
+   stretch them to 100% like maps — that would distort drawing coordinates. */
 body.tkipw-compact #tkipw-widgets:has(iframe),
 body.tkipw-compact #tkipw-widgets:has(.widget-image),
 body.tkipw-compact #tkipw-widgets:has(.leaflet-container),
-body.tkipw-compact #tkipw-widgets:has(img.tkipw-raster) {
+body.tkipw-compact #tkipw-widgets:has(img.tkipw-raster),
+body.tkipw-compact #tkipw-widgets:has(canvas),
+body.tkipw-compact #tkipw-widgets:has(.bqplot) {
   padding: 0;
   overflow: hidden;
 }

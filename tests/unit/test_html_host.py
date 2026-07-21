@@ -55,7 +55,8 @@ def test_host_html_document_inline_forces_full_width():
         # Inner document should stretch to the iframe.
         url = fragment.split('src="')[1].split('"')[0]
         key = url.rsplit("/", 1)[-1].removesuffix(".html")
-        body = get_html_host()._documents[key].decode("utf-8")
+        body_bytes, _content_type = get_html_host()._documents[key]
+        body = body_bytes.decode("utf-8")
         assert "width:100%!important" in body
     finally:
         set_bridge(None)

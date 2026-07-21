@@ -22,6 +22,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   not raise ``KeyError`` in ``Widget.__del__``
 - Bridge WebView ``<a download>`` clicks to a native Tk save dialog (bqplot
   toolbar Save and similar)
+- Drop compact-shell padding for ipycanvas / bqplot so window-mode pop-ups are
+  edge-to-edge like maps and images
 - Serve `runtime.js` / `runtime.css` as separate loopback assets (HTML stays
   small) so large bundles still boot in desktop WebViews
 - Accept frontend-initiated ``comm_open`` (e.g. bqplot toolbar ``PanZoom``) so

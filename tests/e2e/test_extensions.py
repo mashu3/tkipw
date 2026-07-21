@@ -356,6 +356,15 @@ def test_ipycanvas_renders_in_window_mode():
         assert wait_for_selector(popup, "#tkipw-widgets canvas", steps=200), (
             "ipycanvas DOM missing in window mode"
         )
+        pad = eval_json(
+            popup,
+            "(function(){var m=document.querySelector('#tkipw-widgets');"
+            "return m&&getComputedStyle(m).padding;})()",
+            steps=8,
+        )
+        assert pad in ("0px", "0"), (
+            f"window-mode canvas should be edge-to-edge, got {pad!r}"
+        )
 
         with hold_canvas():
             canvas.fill_style = "#f59e0b"

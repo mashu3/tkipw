@@ -46,3 +46,13 @@ def test_shell_document_url_serves_runtime_over_loopback():
 def test_shell_html_bakes_theme_attribute():
     assert 'data-theme="dark"' in _load_shell_html(theme="dark")
     assert 'data-theme="light"' in _load_shell_html(theme="light")
+
+
+def test_compact_shell_zero_pads_canvas_and_bqplot():
+    from tkipw.app import _SHELL_CSS
+
+    assert ":has(canvas)" in _SHELL_CSS
+    assert ":has(.bqplot)" in _SHELL_CSS
+    # Stretch-to-fill is for maps/images only — not canvas/bqplot.
+    assert ":has(canvas) .jupyter-widgets" not in _SHELL_CSS
+    assert ":has(.bqplot) .jupyter-widgets" not in _SHELL_CSS
