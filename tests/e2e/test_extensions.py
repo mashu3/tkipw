@@ -394,6 +394,183 @@ def test_ipycanvas_renders_in_window_mode():
         host.destroy()
 
 
+def test_bqplot_renders_and_updates(app, tmp_path, monkeypatch):
+    pytest.importorskip("bqplot")
+    from bqplot import Axis, Figure, LinearScale, Scatter
+    from ipywidgets import Layout
+
+    from tkipw.output import display
+
+    x_sc = LinearScale()
+    y_sc = LinearScale()
+    scatter = Scatter(
+        x=[1, 2, 3],
+        y=[1, 4, 9],
+        scales={"x": x_sc, "y": y_sc},
+        colors=["#2563eb"],
+    )
+    ax_y = Axis(scale=y_sc)
+    ax_y.orientation = "vertical"
+    fig = Figure(
+        marks=[scatter],
+        axes=[Axis(scale=x_sc), ax_y],
+        title="e2e-bqplot",
+        layout=Layout(width="480px", height="320px"),
+    )
+    display(fig)
+    assert wait_for_selector(app, "#tkipw-widgets .bqplot .svg-figure"), (
+        "bqplot DOM missing"
+    )
+
+    def marks_drawn() -> bool:
+        sample = eval_json(
+            app,
+            "(function(){"
+            "var dots=document.querySelectorAll('#tkipw-widgets .bqplot .dot.element');"
+            "var svg=document.querySelector('#tkipw-widgets .bqplot svg');"
+            "if(!svg)return null;"
+            "var r=svg.getBoundingClientRect();"
+            "return {n:dots.length,w:r.width,h:r.height};})()",
+            steps=8,
+        )
+        return (
+            isinstance(sample, dict)
+            and int(sample.get("n") or 0) >= 3
+            and float(sample.get("w") or 0) > 0
+            and float(sample.get("h") or 0) > 0
+        )
+
+    assert wait_until(app.root, marks_drawn, steps=200), "bqplot marks not drawn"
+
+    before = eval_json(
+        app,
+        "(function(){return [].map.call("
+        "document.querySelectorAll('#tkipw-widgets .bqplot .dot.element'),"
+        "function(d){var r=d.getBoundingClientRect();return [r.x,r.y];});})()",
+        steps=8,
+    )
+    scatter.y = [2, 3, 5]
+
+    def mark_moved() -> bool:
+        after = eval_json(
+            app,
+            "(function(){return [].map.call("
+            "document.querySelectorAll('#tkipw-widgets .bqplot .dot.element'),"
+            "function(d){var r=d.getBoundingClientRect();return [r.x,r.y];});})()",
+            steps=8,
+        )
+        return isinstance(after, list) and after != before
+
+    assert wait_until(app.root, mark_moved, steps=200), (
+        "bqplot mark update did not reach the frontend"
+    )
+
+    # Toolbar PanZoom: interaction layer must mount (regression for early iopub idle).
+    eval_json(
+        app,
+        "(function(){"
+        "var tb=document.querySelector('.toolbar_div');"
+        "if(!tb)return false;"
+        "tb.style.display='unset';tb.style.visibility='visible';tb.style.opacity='1';"
+        "var btn=document.querySelector('button[title=PanZoom]');"
+        "if(!btn)return false;"
+        "btn.click();"
+        "return true;})()",
+        steps=8,
+    )
+
+    def panzoom_layer() -> bool:
+        sample = eval_json(
+            app,
+            "(function(){"
+            "var r=document.querySelector("
+            "'#tkipw-widgets .bqplot svg.svg-figure rect[style*=\"cursor: move\"]');"
+            "return !!(r && r.getAttribute('pointer-events')==='all');})()",
+            steps=8,
+        )
+        return sample is True
+
+    assert wait_until(app.root, panzoom_layer, steps=200), (
+        "bqplot PanZoom interaction layer did not mount"
+    )
+    from bqplot.interacts import PanZoom
+
+    assert isinstance(fig.interaction, PanZoom)
+
+    # Save uses ``<a download>``; desktop WebViews ignore that — bridge to Tk.
+    out = tmp_path / "bqplot-save.png"
+    monkeypatch.setattr(
+        "tkipw.app.filedialog.asksaveasfilename",
+        lambda **_kwargs: str(out),
+    )
+    eval_json(
+        app,
+        "(function(){"
+        "var tb=document.querySelector('.toolbar_div');"
+        "if(!tb)return false;"
+        "tb.style.display='unset';tb.style.visibility='visible';tb.style.opacity='1';"
+        "var btn=document.querySelector('button[title=Save]');"
+        "if(!btn)return false;"
+        "btn.click();"
+        "return true;})()",
+        steps=8,
+    )
+    assert wait_until(
+        app.root,
+        lambda: out.is_file() and out.stat().st_size > 32,
+        steps=200,
+    ), "bqplot Save did not write a PNG via the download bridge"
+
+
+@pytest.mark.skipif(
+    sys.platform.startswith("linux"),
+    reason=("WebKitGTK stalls creating a WebView under a withdrawn window-mode host"),
+)
+def test_bqplot_renders_in_window_mode():
+    pytest.importorskip("bqplot")
+    from bqplot import Axis, Figure, LinearScale, Scatter
+    from ipywidgets import Layout
+
+    from tkipw import App
+    from tkipw.output import display
+
+    host = App(title="tkipw-e2e-bqplot-window", display_mode="window")
+    try:
+        x_sc = LinearScale()
+        y_sc = LinearScale()
+        scatter = Scatter(
+            x=[1, 2, 3],
+            y=[1, 4, 9],
+            scales={"x": x_sc, "y": y_sc},
+            colors=["#f59e0b"],
+        )
+        ax_y = Axis(scale=y_sc)
+        ax_y.orientation = "vertical"
+        fig = Figure(
+            marks=[scatter],
+            axes=[Axis(scale=x_sc), ax_y],
+            layout=Layout(width="480px", height="320px"),
+        )
+        display(fig)
+        assert host._display_windows, "window-mode pop-up was not created"
+        popup = host._display_windows[-1]
+        assert wait_until(popup.root, lambda: popup._ready, steps=200), (
+            "popup runtime never became ready"
+        )
+        assert wait_for_selector(
+            popup,
+            "#tkipw-widgets .bqplot .svg-figure",
+            steps=200,
+        ), "bqplot DOM missing in window mode"
+    finally:
+        for popup in list(getattr(host, "_display_windows", []) or []):
+            try:
+                popup.destroy()
+            except Exception:
+                pass
+        host.destroy()
+
+
 def test_html_widget_and_label_stack(app):
     from tkipw.output import display
 

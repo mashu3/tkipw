@@ -85,6 +85,63 @@ def get_comm(comm_id: str) -> TkwryComm | None:
     return _comms.get(comm_id)
 
 
+def accept_comm_open_from_js(msg: dict[str, Any]) -> Any | None:
+    """Instantiate a Python widget for a frontend-initiated ``comm_open``.
+
+    bqplot's toolbar creates ``PanZoom`` (and similar) models in JS first, then
+    syncs ``Figure.interaction = IPY_MODEL_<id>``. Without a matching Python
+    widget in ``Widget._instances``, ``from_json`` leaves the string and
+    trait validation fails.
+    """
+    from ipywidgets import Widget
+
+    install_comm_backend()
+    comm_id = msg.get("comm_id")
+    if not isinstance(comm_id, str) or not comm_id:
+        return None
+    existing = get_comm(comm_id)
+    if existing is not None:
+        # Already mirrored (replay / duplicate open) — nothing to do.
+        return None
+
+    data = msg.get("data") or {}
+    state = data.get("state") if isinstance(data, dict) else None
+    if not isinstance(state, dict) or "_model_name" not in state:
+        return None
+
+    channel = TkwryComm(
+        target_name=msg.get("target_name") or "jupyter.widget",
+        comm_id=comm_id,
+        primary=False,
+    )
+    register_comm(channel)
+    # Mirror CommManager.comm_open: secondary comms are not registered by
+    # BaseComm.__init__, but Widget.close → Comm.close still unregister_comm.
+    manager = comm.get_comm_manager()
+    if manager is not None:
+        manager.register_comm(channel)
+
+    metadata = msg.get("metadata") or {}
+    if "version" not in metadata:
+        # Widget.handle_comm_opened requires a protocol major version.
+        from ipywidgets import __protocol_version__
+
+        metadata = {**metadata, "version": __protocol_version__}
+
+    buffers = msg.get("buffers")
+    kernel_msg = {
+        "content": {
+            "comm_id": comm_id,
+            "data": data,
+            "target_name": msg.get("target_name") or "jupyter.widget",
+        },
+        "metadata": metadata,
+        "buffers": _decode_buffers(buffers if isinstance(buffers, list) else None),
+    }
+    Widget.handle_comm_opened(channel, kernel_msg)
+    return channel
+
+
 def _encode_buffers(buffers: list[bytes] | None) -> list[str]:
     if not buffers:
         return []

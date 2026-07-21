@@ -38,6 +38,28 @@ class TestIpycanvas:
         assert canvas._canvas_manager._model_module == "ipycanvas"
 
 
+class TestBqplot:
+    def test_figure_uses_bundled_bqplot_and_bqscales_modules(self):
+        pytest.importorskip("bqplot")
+        from bqplot import Axis, Figure, LinearScale, Scatter
+
+        x_sc = LinearScale()
+        y_sc = LinearScale()
+        scatter = Scatter(x=[1, 2], y=[3, 4], scales={"x": x_sc, "y": y_sc})
+        ax_y = Axis(scale=y_sc)
+        ax_y.orientation = "vertical"
+        fig = Figure(
+            marks=[scatter],
+            axes=[Axis(scale=x_sc), ax_y],
+        )
+        assert to_widget(fig) is fig
+        assert fig._model_module == "bqplot"
+        assert fig._view_module == "bqplot"
+        assert fig._model_module_version.startswith("^0.6")
+        assert x_sc._model_module == "bqscales"
+        assert x_sc._view_module == "bqscales"
+
+
 class TestMatplotlib:
     def test_figure_is_transformed_to_png(self):
         pytest.importorskip("matplotlib")

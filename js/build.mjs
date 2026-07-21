@@ -34,6 +34,19 @@ const cssTildePlugin = {
   },
 };
 
+/** Prefer ESM ``lib/`` entry points over webpack AMD ``browser``/``dist`` builds. */
+const bqplotEsmPlugin = {
+  name: "bqplot-esm",
+  setup(build) {
+    build.onResolve({ filter: /^bqplot$/ }, () => ({
+      path: path.resolve(__dirname, "node_modules/bqplot/lib/index.js"),
+    }));
+    build.onResolve({ filter: /^bqscales$/ }, () => ({
+      path: path.resolve(__dirname, "node_modules/bqscales/lib/index.js"),
+    }));
+  },
+};
+
 await fs.promises.mkdir(outDir, { recursive: true });
 
 const buildResult = await esbuild.build({
@@ -62,7 +75,7 @@ const buildResult = await esbuild.build({
     ".png": "dataurl",
     ".gif": "dataurl",
   },
-  plugins: [anywidgetAmdPlugin, cssTildePlugin],
+  plugins: [anywidgetAmdPlugin, cssTildePlugin, bqplotEsmPlugin],
   logLevel: "info",
   mainFields: ["browser", "module", "main"],
   conditions: ["import", "require", "default"],

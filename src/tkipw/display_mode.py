@@ -292,6 +292,10 @@ def _size_from_object(obj: Any) -> tuple[int, int] | None:
     if module.startswith("ipyleaflet"):
         return _ipyleaflet_size(obj)
 
+    # bqplot Figure sizes come from ipywidgets Layout (px).
+    if module.startswith("bqplot"):
+        return _bqplot_size(obj)
+
     # ipycanvas Canvas / MultiCanvas expose pixel width/height traits.
     if module.startswith("ipycanvas"):
         return _ipycanvas_size(obj)
@@ -398,6 +402,26 @@ def _ipyleaflet_size(obj: Any) -> tuple[int, int]:
 
     width = px(getattr(layout, "width", None)) or 720
     height = px(getattr(layout, "height", None)) or 480
+    return max(width, 320), max(height, 240)
+
+
+def _bqplot_size(obj: Any) -> tuple[int, int]:
+    layout = getattr(obj, "layout", None)
+    if layout is None:
+        return 700, 500
+
+    def px(value: Any) -> int | None:
+        if isinstance(value, (int, float)):
+            return int(value)
+        if isinstance(value, str) and value.endswith("px"):
+            try:
+                return int(float(value[:-2]))
+            except ValueError:
+                return None
+        return None
+
+    width = px(getattr(layout, "width", None)) or 700
+    height = px(getattr(layout, "height", None)) or 500
     return max(width, 320), max(height, 240)
 
 

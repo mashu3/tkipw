@@ -173,3 +173,79 @@ def test_walk_widgets_includes_ipycanvas_manager():
     assert canvas._canvas_manager.model_id in ids
     assert found.index(canvas._canvas_manager) < found.index(canvas)
     assert found[-1] is canvas
+
+
+def test_walk_widgets_includes_bqplot_marks_and_scales():
+    pytest.importorskip("bqplot")
+    from bqplot import Axis, Figure, LinearScale, Scatter
+
+    x_sc = LinearScale()
+    y_sc = LinearScale()
+    scatter = Scatter(x=[1, 2], y=[3, 4], scales={"x": x_sc, "y": y_sc})
+    ax_x = Axis(scale=x_sc)
+    ax_y = Axis(scale=y_sc)
+    ax_y.orientation = "vertical"
+    fig = Figure(marks=[scatter], axes=[ax_x, ax_y])
+
+    found = walk_widgets(fig)
+    ids = {w.model_id for w in found}
+    assert fig.model_id in ids
+    assert scatter.model_id in ids
+    assert x_sc.model_id in ids
+    assert y_sc.model_id in ids
+    assert ax_x.model_id in ids
+    assert ax_y.model_id in ids
+    assert found.index(x_sc) < found.index(scatter)
+    assert found.index(scatter) < found.index(fig)
+    assert found[-1] is fig
+
+
+def test_frontend_comm_open_registers_bqplot_panzoom_for_ipy_model_refs():
+    """Toolbar-created PanZoom must resolve as Figure.interaction, not a string."""
+    pytest.importorskip("bqplot")
+    from bqplot import Figure
+    from ipywidgets import Widget
+    from ipywidgets.widgets.widget import _instances
+
+    from tkipw.comm_backend import accept_comm_open_from_js, get_comm
+
+    bridge = RecordingBridge()
+    set_bridge(bridge)
+    fig = Figure()
+    panzoom_id = "frontend-panzoom-test-id"
+
+    accept_comm_open_from_js(
+        {
+            "msg_type": "comm_open",
+            "comm_id": panzoom_id,
+            "target_name": "jupyter.widget",
+            "metadata": {"version": "2.1.0"},
+            "data": {
+                "state": {
+                    "_model_module": "bqplot",
+                    "_model_module_version": "^0.6.1",
+                    "_model_name": "PanZoomModel",
+                    "_view_module": "bqplot",
+                    "_view_module_version": "^0.6.1",
+                    "_view_name": "PanZoom",
+                }
+            },
+        }
+    )
+
+    assert get_comm(panzoom_id) is not None
+    assert panzoom_id in _instances
+    panzoom = _instances[panzoom_id]
+    assert isinstance(panzoom, Widget)
+    assert panzoom._model_name == "PanZoomModel"
+    # Registered so Widget.close → Comm.close → unregister_comm does not KeyError.
+    import comm
+
+    assert comm.get_comm_manager().get_comm(panzoom_id) is not None
+
+    # Same path as a JS state update: serialized widget ref must deserialize.
+    fig.set_state({"interaction": f"IPY_MODEL_{panzoom_id}"})
+    assert fig.interaction is panzoom
+
+    panzoom.close()
+    assert comm.get_comm_manager().get_comm(panzoom_id) is None

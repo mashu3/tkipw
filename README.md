@@ -31,6 +31,7 @@ WebView that lives *inside* a Tk `Frame` (via tkwry's child-window embedding).
 * **anywidget** — bundled front end (e.g. Plotly `FigureWidget`)
 * **ipyleaflet** — bundled live Leaflet widget module (Python ↔ map trait updates)
 * **ipycanvas** — bundled Canvas widget module (Python drawing commands ↔ WebView)
+* **bqplot** — bundled interactive plotting widgets (Python ↔ SVG figure updates)
 * **Notebook-like display** — `display()`, `clear_output()`, `Output`, `plt.show()`, tracebacks, and `logging` all show up in an output area
 * **One event loop** — everything runs on Tk's `mainloop`
 
@@ -55,6 +56,7 @@ committed to the repo). It embeds:
 * **Jupyter Widgets** (`@jupyter-widgets/*`) and **Lumino** — BSD-3-Clause
 * **anywidget**, **jupyter-leaflet**, **jQuery**, **Backbone.js** — MIT
 * **ipycanvas** (and Rough.js) — BSD-3-Clause / MIT
+* **bqplot** / **bqscales** (and D3) — Apache-2.0 / ISC
 * **Leaflet** and its map plugins — BSD / MIT / ISC / Beerware
 * **Font Awesome Free** icon styles (pulled in by Jupyter Widgets; font binaries
   are stripped at build time) — MIT / CC BY 4.0 / SIL OFL 1.1
@@ -167,6 +169,7 @@ python examples/playground.py    # inline: Monaco editor + stacked output
 python examples/plotly_demo.py   # window: Plotly FigureWidget pop-up
 python examples/ipyleaflet_demo.py # window: live ipyleaflet map pop-up
 python examples/ipycanvas_demo.py  # window: live ipycanvas Canvas pop-up
+python examples/bqplot_demo.py     # window: live bqplot Figure pop-up
 python examples/bokeh_demo.py    # window: Bokeh ``show(plot)`` pop-up
 python examples/altair_demo.py   # window: Altair ``display(chart)`` pop-up
 python examples/pillow_demo.py   # window: Pillow ``Image.show()`` pop-up
@@ -178,6 +181,7 @@ python examples/pillow_demo.py   # window: Pillow ``Image.show()`` pop-up
 | [`examples/plotly_demo.py`](examples/plotly_demo.py) | window | Plotly `FigureWidget` in a Tk pop-up |
 | [`examples/ipyleaflet_demo.py`](examples/ipyleaflet_demo.py) | window | Live ipyleaflet widget map in a Tk pop-up |
 | [`examples/ipycanvas_demo.py`](examples/ipycanvas_demo.py) | window | Live ipycanvas `Canvas` in a Tk pop-up |
+| [`examples/bqplot_demo.py`](examples/bqplot_demo.py) | window | Live bqplot `Figure` in a Tk pop-up |
 | [`examples/bokeh_demo.py`](examples/bokeh_demo.py) | window | Bokeh `show(plot)` in a Tk pop-up |
 | [`examples/altair_demo.py`](examples/altair_demo.py) | window | Altair `display(chart)` in a Tk pop-up |
 | [`examples/pillow_demo.py`](examples/pillow_demo.py) | window | Pillow `Image.show()` in a Tk pop-up |
@@ -193,7 +197,7 @@ and stacked notebook-style output on the right:
 python examples/playground.py
 ```
 
-Samples (`README.md` / matplotlib / pyvista / pandas / Folium / ipyleaflet / ipycanvas / …) open as
+Samples (`README.md` / matplotlib / pyvista / pandas / Folium / ipyleaflet / ipycanvas / bqplot / …) open as
 tabs. Running a `.md` or `.markdown` tab renders the file directly in the
 themed output pane; Python code can render the same content with
 `IPython.display.Markdown`. Run the active tab with the **Run** button or
@@ -238,6 +242,9 @@ Built-ins:
   map/layer trait changes continue to flow over the tkipw Comm bridge.
 * **ipycanvas** — bundled `ipycanvas` module renders live Canvas widgets;
   drawing commands and pointer events flow over the Comm bridge.
+* **bqplot** — bundled `bqplot` + `bqscales` modules render interactive SVG
+  figures; marks/scales/axes sync over the Comm bridge. Toolbar **Save** opens
+  a native file dialog (desktop WebViews do not honor `<a download>`).
 * **Pillow** — `Image.show()` → PNG via ``display()`` (inline pane or pop-up)
 * **Altair** — standalone Vega-Lite HTML hosted in a responsive iframe
 * **Bokeh** — `show()` / displayed models → standalone HTML hosted in an iframe
@@ -252,7 +259,7 @@ Built-ins:
 
 * **Python** — `comm.create_comm` → `TkwryComm`; official ipywidgets messages sent as JSON (+base64 buffers)
 * **JS** — `@jupyter-widgets/html-manager` + `window.ipc`, with anywidget,
-  jupyter-leaflet, and ipycanvas bundled in
+  jupyter-leaflet, ipycanvas, and bqplot/bqscales bundled in
 * **Bridge** — a stack of active `App`s; the top receives new comm traffic
 
 ---
@@ -274,8 +281,8 @@ avoid WebKitGTK hangs). See [`.github/workflows/ci.yml`](.github/workflows/ci.ym
 
 * **Alpha** — APIs may change
 * **Widget coverage** — standard ipywidgets controls + anywidget + ipyleaflet
-  + ipycanvas; no kernel, `update_display`, or general dynamic third-party
-  widget modules (bqplot, …)
+  + ipycanvas + bqplot; no kernel, `update_display`, or general dynamic
+  third-party widget modules
 * **PyVista on macOS** — client-side rendering only (see extensions above)
 * **Platform behavior** — inherits tkwry's platform notes (macOS embedding, import order, Linux source build)
 
@@ -289,6 +296,8 @@ Awesome Free icon styles under MIT / CC BY 4.0 / OFL 1.1) — all permissive and
 redistributable. See [`NOTICE`](NOTICE) for full attributions.
 
 Built on [tkwry](https://github.com/mashu3/tkwry).
+
+See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 ---
 

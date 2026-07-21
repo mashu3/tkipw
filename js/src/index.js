@@ -6,10 +6,13 @@ import * as base from "@jupyter-widgets/base";
 import * as controls from "@jupyter-widgets/controls";
 import * as jupyterLeaflet from "jupyter-leaflet";
 import * as ipycanvas from "ipycanvas";
+import * as bqplot from "bqplot";
+import * as bqscales from "bqscales";
 
 // CSS for ipywidgets 8 controls
 import "@jupyter-widgets/controls/css/widgets-base.css";
 import "@jupyter-widgets/controls/css/labvariables.css";
+import "bqplot/css/bqplot.css";
 
 // anywidget factory (AMD → ESM via build plugin)
 import anywidgetFactory from "anywidget";
@@ -25,6 +28,68 @@ function postToPython(msg) {
   } else {
     console.warn("[tkipw] window.ipc unavailable", msg);
   }
+}
+
+function bytesToBase64(bytes) {
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+/**
+ * Desktop WebViews ignore ``<a download>``. Bridge those clicks to Python so
+ * tkipw can show a native save dialog (bqplot toolbar Save, etc.).
+ */
+function installDownloadBridge() {
+  const originalClick = HTMLAnchorElement.prototype.click;
+  HTMLAnchorElement.prototype.click = function patchedAnchorClick(...args) {
+    const filename = this.getAttribute("download");
+    const href = this.href || "";
+    if (filename == null || filename === "" || !href) {
+      return originalClick.apply(this, args);
+    }
+    if (href.startsWith("data:")) {
+      const comma = href.indexOf(",");
+      if (comma < 0) {
+        return originalClick.apply(this, args);
+      }
+      const header = href.slice(5, comma);
+      const payload = href.slice(comma + 1);
+      const mime = (header.split(";")[0] || "application/octet-stream").trim();
+      const isBase64 = /;base64/i.test(header);
+      const data_base64 = isBase64
+        ? payload
+        : bytesToBase64(new TextEncoder().encode(decodeURIComponent(payload)));
+      postToPython({
+        channel: "download",
+        filename,
+        mime,
+        data_base64,
+      });
+      return;
+    }
+    if (href.startsWith("blob:")) {
+      fetch(href)
+        .then((r) => r.arrayBuffer())
+        .then((buf) => {
+          postToPython({
+            channel: "download",
+            filename,
+            mime: "application/octet-stream",
+            data_base64: bytesToBase64(new Uint8Array(buf)),
+          });
+        })
+        .catch((e) => {
+          console.error("[tkipw] blob download failed", e);
+          originalClick.apply(this, args);
+        });
+      return;
+    }
+    return originalClick.apply(this, args);
+  };
 }
 
 function decodeBuffers(b64list) {
@@ -119,15 +184,21 @@ class IpcComm {
       metadata: metadata || {},
       buffers: encodeBuffers(buffers),
     });
-    // Mimic kernel iopub status idle so WidgetModel pending msg counter clears
+    // Mimic kernel iopub status idle so WidgetModel pending msg counter clears.
+    // Must run *after* send_sync_message returns and increments `_pending_msgs`;
+    // a synchronous idle here decrements first (→ -1) and leaves the counter
+    // stuck at 1, so later trait updates are buffered forever (bqplot PanZoom).
     if (callbacks && callbacks.iopub && callbacks.iopub.status) {
-      try {
-        callbacks.iopub.status({
-          content: { execution_state: "idle" },
-        });
-      } catch (e) {
-        /* ignore */
-      }
+      const status = callbacks.iopub.status;
+      queueMicrotask(() => {
+        try {
+          status({
+            content: { execution_state: "idle" },
+          });
+        } catch (e) {
+          /* ignore */
+        }
+      });
     }
     return this.comm_id;
   }
@@ -178,6 +249,12 @@ class TkipwManager extends HTMLManager {
         if (moduleName === "ipycanvas") {
           return Promise.resolve(ipycanvas);
         }
+        if (moduleName === "bqplot") {
+          return Promise.resolve(bqplot);
+        }
+        if (moduleName === "bqscales") {
+          return Promise.resolve(bqscales);
+        }
         return Promise.reject(
           new Error(`Unknown widget module: ${moduleName}`)
         );
@@ -213,6 +290,12 @@ class TkipwManager extends HTMLManager {
         }
         if (moduleName === "ipycanvas") {
           return ipycanvas;
+        }
+        if (moduleName === "bqplot") {
+          return bqplot;
+        }
+        if (moduleName === "bqscales") {
+          return bqscales;
         }
         if (this.loader) {
           return this.loader(moduleName, moduleVersion);
@@ -361,6 +444,8 @@ export async function boot() {
   const root = document.getElementById("tkipw-root");
   const status = document.getElementById("tkipw-status");
   if (status) status.remove();
+
+  installDownloadBridge();
 
   const mount = document.createElement("div");
   mount.id = "tkipw-widgets";

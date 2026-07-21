@@ -304,6 +304,29 @@ with hold_canvas():
     canvas.font = "24px sans-serif"
     canvas.fill_text("ipycanvas in tkipw", 40, 320)
 """,
+    "bqplot": """\
+from bqplot import Axis, Figure, LinearScale, Scatter
+from ipywidgets import Layout
+
+x_sc = LinearScale()
+y_sc = LinearScale()
+scatter = Scatter(
+    x=[1, 2, 3, 4, 5],
+    y=[1, 4, 9, 16, 25],
+    scales={"x": x_sc, "y": y_sc},
+    colors=["#2563eb"],
+)
+ax_x = Axis(scale=x_sc, label="x")
+ax_y = Axis(scale=y_sc, label="y")
+ax_y.orientation = "vertical"
+fig = Figure(
+    marks=[scatter],
+    axes=[ax_x, ax_y],
+    title="bqplot in tkipw",
+    layout=Layout(width="100%", height="400px"),
+)
+display(fig)
+""",
     "pillow": """\
 from PIL import Image, ImageDraw
 

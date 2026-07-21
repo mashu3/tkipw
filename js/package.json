@@ -16,6 +16,8 @@
     "@jupyter-widgets/controls": "^5.0.12",
     "@jupyter-widgets/html-manager": "^1.0.14",
     "anywidget": "^0.9.18",
+    "bqplot": "^0.6.1",
+    "bqscales": "^0.3.7",
     "ipycanvas": "^0.13.3",
     "jupyter-leaflet": "^0.20.0"
   },

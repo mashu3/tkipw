@@ -40,6 +40,16 @@ ipycanvas
   License: BSD-3-Clause
   https://github.com/jupyter-widgets-contrib/ipycanvas
 
+bqplot
+  Copyright 2015 Bloomberg Finance L.P.
+  License: Apache-2.0
+  https://github.com/bqplot/bqplot
+
+bqscales
+  Copyright 2015 Bloomberg Finance L.P. / bqplot contributors
+  License: Apache-2.0
+  https://github.com/bqplot/bqscales
+
 ------------------------------------------------------------------------
 
 The prebuilt front-end bundle (tkipw/html/runtime.js and runtime.css, produced
@@ -79,3 +89,8 @@ Rough.js (bundled via ipycanvas for RoughCanvas)
   Copyright (c) 2019 Preet Patel
   License: MIT
   https://github.com/rough-stuff/rough
+
+D3 and related libraries (bundled via bqplot / bqscales)
+  Copyright (c) Michael Bostock and D3.js contributors
+  License: ISC / BSD-3-Clause (per package)
+  https://d3js.org/

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import tkinter as tk
 from collections.abc import Callable
 from pathlib import Path
+from tkinter import filedialog
 from typing import Any
 
 from tkwry import PageLoadEvent, WebView
@@ -33,28 +35,21 @@ _SHELL = """\
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>tkipw</title>
+  <link rel="stylesheet" href="__RUNTIME_CSS_URL__" />
   <style>__CSS__</style>
 </head>
 <body>
   <div id="tkipw-root">
     <div id="tkipw-status">Starting widget runtime…</div>
   </div>
-  <script>__JS__</script>
+  <script src="__RUNTIME_JS_URL__"></script>
 </body>
 </html>
 """
 
+# App chrome CSS (theme + layout). Widget-manager CSS ships as runtime.css.
+_SHELL_CSS = """
 
-def _load_shell_html(*, compact: bool = False, theme: str = "light") -> str:
-    runtime = _HTML_DIR / "runtime.js"
-    css_path = _HTML_DIR / "runtime.css"
-    if not runtime.exists():
-        raise FileNotFoundError(
-            f"Missing {runtime}. Run: cd js && npm install && npm run build"
-        )
-    js = runtime.read_text(encoding="utf-8")
-    css = css_path.read_text(encoding="utf-8") if css_path.exists() else ""
-    css += """
 html, body {
   margin: 0; padding: 0;
   width: 100%; height: 100%;
@@ -113,8 +108,10 @@ html[data-theme="dark"] {
   overflow: auto;
   color: var(--tkipw-fg);
 }
-/* Rich output fills the available pane width. */
-#tkipw-widgets .jupyter-widgets,
+/* Rich output fills the available pane width.
+   Exclude ``.jupyter-button`` — bqplot's hover toolbar reuses that class and
+   must stay compact (not stretched to 100% width). */
+#tkipw-widgets .jupyter-widgets:not(.jupyter-button),
 #tkipw-widgets .widget-box,
 #tkipw-widgets .widget-vbox,
 #tkipw-widgets .widget-html,
@@ -122,6 +119,55 @@ html[data-theme="dark"] {
   width: 100% !important;
   max-width: 100%;
   box-sizing: border-box;
+}
+/* bqplot integrated toolbar (Font Awesome glyphs are omitted from the bundle). */
+#tkipw-widgets .bqplot .toolbar_div {
+  z-index: 10;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  background: color-mix(in srgb, var(--tkipw-bg) 92%, transparent);
+  border: 1px solid var(--tkipw-border);
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+#tkipw-widgets .bqplot .toolbar_div .jupyter-button {
+  flex: 0 0 auto;
+  width: 32px !important;
+  min-width: 32px;
+  max-width: 32px;
+  height: 28px;
+  padding: 0;
+  margin: 0;
+  line-height: 28px;
+  text-align: center;
+  color: var(--tkipw-fg);
+  background: var(--tkipw-panel);
+  border: 1px solid var(--tkipw-border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+#tkipw-widgets .bqplot .toolbar_div .fa {
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif !important;
+  font-style: normal;
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--tkipw-fg);
+}
+#tkipw-widgets .bqplot .toolbar_div .fa:before {
+  font-family: inherit !important;
+}
+#tkipw-widgets .bqplot .toolbar_div .fa-arrows:before {
+  content: "↔";
+}
+#tkipw-widgets .bqplot .toolbar_div .fa-refresh:before {
+  content: "↻";
+}
+#tkipw-widgets .bqplot .toolbar_div .fa-save:before {
+  content: "⇩";
 }
 /* Keep stacked sections from being covered by overflowing embeds. */
 #tkipw-widgets .widget-vbox {
@@ -285,12 +331,7 @@ html[data-theme="dark"] {
 #tkipw-widgets pre {
   color: inherit;
 }
-"""
-    if compact:
-        # Window-mode pop-ups: kill ipywidgets chrome margin.
-        # Full-bleed only for media (iframe/img). Text/errors keep normal
-        # line-height and padding so tracebacks don't overlap.
-        css += """
+
 body.tkipw-compact {
   overflow: hidden;
 }
@@ -391,16 +432,35 @@ body.tkipw-compact img.tkipw-raster {
   object-fit: fill;
   display: block !important;
 }
+
 """
-    # Avoid </script> in source breaking the HTML shell
-    js = js.replace("</script>", "<\\/script>")
+
+
+def _load_shell_html(
+    *,
+    compact: bool = False,
+    theme: str = "light",
+    runtime_js_url: str = "",
+    runtime_css_url: str = "",
+) -> str:
+    """Build the widget shell HTML.
+
+    ``runtime_js_url`` / ``runtime_css_url`` point at loopback-hosted assets so
+    the document stays small (WebViews struggle with multi-MB inline scripts).
+    """
+    runtime = _HTML_DIR / "runtime.js"
+    if not runtime.exists():
+        raise FileNotFoundError(
+            f"Missing {runtime}. Run: cd js && npm install && npm run build"
+        )
     body = '<body class="tkipw-compact">' if compact else "<body>"
     if theme not in ("light", "dark"):
         theme = "light"
     return (
         _SHELL.replace("__THEME__", theme)
-        .replace("__CSS__", css)
-        .replace("__JS__", js)
+        .replace("__CSS__", _SHELL_CSS)
+        .replace("__RUNTIME_JS_URL__", runtime_js_url)
+        .replace("__RUNTIME_CSS_URL__", runtime_css_url)
         .replace("<body>", body, 1)
     )
 
@@ -408,13 +468,35 @@ body.tkipw-compact img.tkipw-raster {
 def _shell_document_url(*, compact: bool = False, theme: str = "light") -> str:
     """Serve the widget shell over loopback and return its URL.
 
-    WebView2's ``NavigateToString`` (used by ``html=`` / ``load_html``) rejects
-    payloads larger than 2 MB.  The bundled runtime exceeds that, so the shell
-    must be loaded via ``url=`` instead.
+    WebView2's ``NavigateToString`` rejects payloads larger than ~2 MB. Even
+    over ``url=``, inlining the full runtime as a ``<script>`` body can fail to
+    evaluate once the bundle grows (bqplot / leaflet / …). Host ``runtime.js``
+    / ``runtime.css`` as separate loopback assets and keep the HTML small.
     """
     from .html_host import get_html_host
 
-    return get_html_host().mount(_load_shell_html(compact=compact, theme=theme))
+    host = get_html_host()
+    runtime_js = (_HTML_DIR / "runtime.js").read_bytes()
+    css_path = _HTML_DIR / "runtime.css"
+    runtime_css = css_path.read_bytes() if css_path.exists() else b"/* empty */\n"
+    js_url = host.mount_bytes(
+        runtime_js,
+        content_type="application/javascript; charset=utf-8",
+        suffix=".js",
+    )
+    css_url = host.mount_bytes(
+        runtime_css,
+        content_type="text/css; charset=utf-8",
+        suffix=".css",
+    )
+    return host.mount(
+        _load_shell_html(
+            compact=compact,
+            theme=theme,
+            runtime_js_url=js_url,
+            runtime_css_url=css_url,
+        )
+    )
 
 
 class App:
@@ -597,9 +679,60 @@ class App:
         if channel == "comm":
             self._handle_comm_from_js(msg)
             return
+        if channel == "download":
+            self._handle_download_from_js(msg)
+            return
         if channel == "error":
             detail = msg.get("detail") or msg.get("message") or raw
             print(f"[tkipw] frontend error: {detail}")
+
+    def _handle_download_from_js(self, msg: dict[str, Any]) -> None:
+        """Persist a WebView ``<a download>`` payload via a native save dialog.
+
+        Desktop WebViews do not implement browser downloads; bqplot's Save
+        toolbar (and similar) create a data-URL anchor and click it. The JS
+        bridge posts the bytes here instead.
+        """
+        filename = msg.get("filename") or "download"
+        if not isinstance(filename, str):
+            filename = "download"
+        filename = Path(filename).name or "download"
+        raw_b64 = msg.get("data_base64") or ""
+        if not isinstance(raw_b64, str) or not raw_b64:
+            return
+        try:
+            data = base64.b64decode(raw_b64, validate=False)
+        except Exception:
+            return
+        if not data:
+            return
+
+        suffix = Path(filename).suffix
+        filetypes: list[tuple[str, str]] = [("All files", "*.*")]
+        if suffix:
+            filetypes.insert(0, (f"{suffix.lstrip('.').upper()} files", f"*{suffix}"))
+
+        def _save() -> None:
+            if self._destroyed:
+                return
+            path = filedialog.asksaveasfilename(
+                parent=self.root,
+                title="Save",
+                initialfile=filename,
+                defaultextension=suffix or "",
+                filetypes=filetypes,
+            )
+            if not path:
+                return
+            try:
+                Path(path).write_bytes(data)
+            except OSError as exc:
+                print(f"[tkipw] failed to save download: {exc}")
+
+        try:
+            self.root.after(0, _save)
+        except Exception:
+            _save()
 
     def when_ready(self, callback: Callable[[], None]) -> None:
         """Run *callback* once the widget runtime has booted (and after flush)."""
@@ -631,6 +764,13 @@ class App:
         msg_type = msg.get("msg_type")
         comm_id = msg.get("comm_id")
         if not comm_id:
+            return
+        if msg_type == "comm_open":
+            from .comm_backend import accept_comm_open_from_js
+
+            accept_comm_open_from_js(msg)
+            if isinstance(comm_id, str):
+                self._known_model_ids.add(comm_id)
             return
         c = get_comm(comm_id)
         if msg_type == "comm_msg":

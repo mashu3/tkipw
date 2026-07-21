@@ -31,8 +31,8 @@ _IFRAME_RE = re.compile(r"<iframe([^>]*)>", re.IGNORECASE)
 class LocalHTMLHost:
     """Serve in-memory HTML documents on an ephemeral loopback port."""
 
-    def __init__(self, *, max_documents: int = 32) -> None:
-        self._documents: OrderedDict[str, bytes] = OrderedDict()
+    def __init__(self, *, max_documents: int = 96) -> None:
+        self._documents: OrderedDict[str, tuple[bytes, str]] = OrderedDict()
         self._lock = threading.Lock()
         self._max_documents = max_documents
         handler = self._make_handler()
@@ -56,17 +56,25 @@ class LocalHTMLHost:
 
             def do_GET(self) -> None:  # noqa: N802
                 path = urlparse(self.path).path
-                if not path.startswith("/document/") or not path.endswith(".html"):
+                key: str | None = None
+                if path.startswith("/document/") and path.endswith(".html"):
+                    key = path[len("/document/") : -len(".html")]
+                elif path.startswith("/asset/"):
+                    key = path[len("/asset/") :]
+                    # Strip a single extension suffix used only for Content-Type hints.
+                    if "." in key:
+                        key = key.rsplit(".", 1)[0]
+                if key is None:
                     self.send_error(404)
                     return
-                key = path[len("/document/") : -len(".html")]
                 with lock:
-                    body = documents.get(key)
-                if body is None:
+                    entry = documents.get(key)
+                if entry is None:
                     self.send_error(404)
                     return
+                body, content_type = entry
                 self.send_response(200)
-                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Type", content_type)
                 self.send_header("Content-Length", str(len(body)))
                 self.send_header("Cache-Control", "no-store")
                 self.end_headers()
@@ -76,12 +84,31 @@ class LocalHTMLHost:
 
     def mount(self, document: str) -> str:
         """Store a document and return its loopback URL."""
+        return self.mount_bytes(
+            document.encode("utf-8"),
+            content_type="text/html; charset=utf-8",
+            suffix=".html",
+            path_prefix="/document/",
+        )
+
+    def mount_bytes(
+        self,
+        body: bytes,
+        *,
+        content_type: str,
+        suffix: str,
+        path_prefix: str = "/asset/",
+    ) -> str:
+        """Store raw bytes and return a loopback URL."""
         key = uuid.uuid4().hex
         with self._lock:
-            self._documents[key] = document.encode("utf-8")
+            self._documents[key] = (body, content_type)
             while len(self._documents) > self._max_documents:
                 self._documents.popitem(last=False)
-        return f"http://127.0.0.1:{self.port}/document/{key}.html"
+        if path_prefix == "/document/":
+            return f"http://127.0.0.1:{self.port}/document/{key}.html"
+        ext = suffix if suffix.startswith(".") else f".{suffix}"
+        return f"http://127.0.0.1:{self.port}/asset/{key}{ext}"
 
     def shutdown(self) -> None:
         self._httpd.shutdown()

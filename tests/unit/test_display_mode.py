@@ -202,3 +202,15 @@ def test_ipycanvas_window_uses_canvas_pixel_size():
 
     assert infer_window_size(ipycanvas.Canvas(width=640, height=360)) == (640, 360)
     assert infer_window_size(ipycanvas.Canvas()) == (700, 500)
+
+
+def test_bqplot_window_uses_figure_layout():
+    pytest.importorskip("bqplot")
+    from bqplot import Figure
+    from ipywidgets import Layout
+
+    from tkipw.display_mode import infer_window_size
+
+    assert infer_window_size(Figure()) == (700, 500)
+    sized = Figure(layout=Layout(width="640px", height="400px"))
+    assert infer_window_size(sized) == (640, 400)
