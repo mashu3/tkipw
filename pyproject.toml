@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tkipw"
-version = "0.0.1"
+version = "0.0.2"
 description = "ipywidgets / anywidget desktop runtime on tkwry (no Jupyter Notebook)"
 readme = "README.md"
 license = "MIT"

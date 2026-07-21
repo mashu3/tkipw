@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-07-22
+
 ### Added
 
 - Bundled **ipympl** / **jupyter-matplotlib** front end (``import ipympl`` opts
@@ -51,6 +53,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Harden Windows/Linux e2e (split suites, per-process Windows tests, ipyleaflet
   window-mode isolation)
 - Align bundled JS license notices; trim lazy `__all__`; reset Comm state in tests
+- Avoid real Tk in download unit tests (Windows ARM64 CI with incomplete Tcl/Tk)
 
 ### Changed
 

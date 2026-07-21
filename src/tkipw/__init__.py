@@ -50,7 +50,7 @@ __all__ = [
     # ``from tkipw import enable_*`` / ``__getattr__``, but omitted here so
     # ``from tkipw import *`` does not pull optional heavy dependencies.
 ]
-__version__ = "0.0.1"
+__version__ = "0.0.2"
 
 
 def __getattr__(name: str):
