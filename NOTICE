@@ -50,6 +50,11 @@ bqscales
   License: Apache-2.0
   https://github.com/bqplot/bqscales
 
+ipympl / jupyter-matplotlib
+  Copyright (c) Matplotlib Development Team
+  License: BSD-3-Clause
+  https://github.com/matplotlib/ipympl
+
 ------------------------------------------------------------------------
 
 The prebuilt front-end bundle (tkipw/html/runtime.js and runtime.css, produced

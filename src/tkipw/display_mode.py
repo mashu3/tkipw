@@ -113,7 +113,11 @@ def validate_display_mode(mode: str) -> DisplayMode:
 
 
 def sync_matplotlib(mode: DisplayMode) -> None:
-    """Keep the Matplotlib adapter aligned with the active App."""
+    """Keep the Matplotlib adapter aligned with the active App.
+
+    Does not override an explicit ``widget`` (ipympl) backend — App
+    ``display_mode`` still controls inline pane vs pop-up routing.
+    """
     try:
         from .extensions.matplotlib import MatplotlibExtension
         from .jupyter import enable_extension, get_extension
@@ -122,6 +126,9 @@ def sync_matplotlib(mode: DisplayMode) -> None:
 
     existing = get_extension("matplotlib")
     if isinstance(existing, MatplotlibExtension):
+        if existing.mode == "widget":
+            enable_extension(existing.name)
+            return
         existing.set_mode(mode)
         enable_extension(existing.name)
 
@@ -175,7 +182,12 @@ def open_display_window(
 
     raster = _has_raster_pixel_size(*(sources or ()), *widgets)
     # Tables size to their cells; the 480×320 design floor leaves empty chrome.
-    tight = raster or _has_html_table(*(sources or ()), *widgets)
+    # ipympl is already in figure pixels (toolbar overlays; no side gutter).
+    tight = (
+        raster
+        or _has_html_table(*(sources or ()), *widgets)
+        or _has_ipympl(*(sources or ()), *widgets)
+    )
     if tkface.win.is_process_dpi_aware() and not tight:
         win_w = tkface.win.design_to_physical(win_w)
         win_h = tkface.win.design_to_physical(win_h)
@@ -249,6 +261,7 @@ def open_display_window(
     top.protocol("WM_DELETE_WINDOW", _close)
     if widgets:
         popup.display(*widgets)
+        _schedule_ipympl_window_sync(top, popup, *(sources or ()), *widgets)
 
     if cloaked:
         # Reveal after runtime ready + outbound flush (see App.when_ready).
@@ -327,6 +340,12 @@ def _size_from_object(obj: Any) -> tuple[int, int] | None:
     # ipycanvas Canvas / MultiCanvas expose pixel width/height traits.
     if module.startswith("ipycanvas"):
         return _ipycanvas_size(obj)
+
+    # ipympl / jupyter-matplotlib canvas → figure size in pixels (+ toolbar).
+    if module.startswith("ipympl") or getattr(obj, "_model_module", None) == (
+        "jupyter-matplotlib"
+    ):
+        return _ipympl_size(obj)
 
     # IPython Markdown / any object that only exposes markdown (no pixel size).
     if _is_markdown_object(obj):
@@ -460,6 +479,113 @@ def _ipycanvas_size(obj: Any) -> tuple[int, int]:
     except (TypeError, ValueError):
         return 700, 500
     return max(width, 200), max(height, 160)
+
+
+def _ipympl_size(obj: Any) -> tuple[int, int]:
+    """Estimate window size from an ipympl canvas / figure.
+
+    Pop-ups use the compact shell, which hides ipympl header/footer and the
+    canvas-div margin so the window matches figure pixels. The toolbar
+    overlays the canvas (no extra width).
+    """
+    fig = getattr(obj, "figure", None)
+    if fig is not None:
+        try:
+            width = int(fig.get_figwidth() * fig.get_dpi())
+            height = int(fig.get_figheight() * fig.get_dpi())
+            return max(width, 320), max(height, 240)
+        except Exception:
+            pass
+    size = getattr(obj, "_size", None)
+    if (
+        isinstance(size, (tuple, list))
+        and len(size) == 2
+        and all(isinstance(v, (int, float)) for v in size)
+        and size[0] > 0
+        and size[1] > 0
+    ):
+        return max(int(size[0]), 320), max(int(size[1]), 240)
+    return 640, 480
+
+
+def _has_ipympl(*objs: Any) -> bool:
+    """True when a source is an ipympl / jupyter-matplotlib canvas."""
+    for obj in objs:
+        module = type(obj).__module__ or ""
+        if module.startswith("ipympl"):
+            return True
+        if getattr(obj, "_model_module", None) == "jupyter-matplotlib":
+            return True
+    return False
+
+
+def _schedule_ipympl_window_sync(top: Any, popup: Any, *objs: Any) -> None:
+    """Re-apply pop-up geometry once ipympl reports its live ``_size``.
+
+    Inference uses ``figsize * dpi`` before the frontend round-trips ``_size``.
+    Syncing after ready avoids a persistent mismatch when those disagree.
+    """
+    canvas = None
+    for obj in objs:
+        if getattr(obj, "_model_module", None) == "jupyter-matplotlib":
+            canvas = obj
+            break
+        fig = getattr(obj, "figure", None)
+        cand = getattr(obj, "canvas", None) if fig is None else obj
+        if fig is not None:
+            cand = getattr(fig, "canvas", None)
+        if getattr(cand, "_model_module", None) == "jupyter-matplotlib":
+            canvas = cand
+            break
+    if canvas is None:
+        return
+
+    for name in ("header_visible", "footer_visible"):
+        if hasattr(canvas, name):
+            try:
+                setattr(canvas, name, False)
+            except Exception:
+                pass
+
+    applied = {"done": False}
+
+    def _apply(_change: Any = None) -> None:
+        if applied["done"] or getattr(popup, "_destroyed", False):
+            return
+        size = getattr(canvas, "_size", None)
+        if (
+            not isinstance(size, (tuple, list))
+            or len(size) != 2
+            or float(size[0]) < 32
+            or float(size[1]) < 32
+        ):
+            return
+        win_w = max(int(round(float(size[0]))), 120)
+        win_h = max(int(round(float(size[1]))), 80)
+        try:
+            if not top.winfo_exists():
+                return
+            top.geometry(f"{win_w}x{win_h}")
+            applied["done"] = True
+        except Exception:
+            return
+        try:
+            canvas.unobserve(_apply, names=["_size"])
+        except Exception:
+            pass
+
+    try:
+        canvas.observe(_apply, names=["_size"])
+    except Exception:
+        pass
+
+    def _on_ready() -> None:
+        _apply()
+
+    try:
+        popup.when_ready(_on_ready)
+    except Exception:
+        _on_ready()
 
 
 def _dim_pair(value: Any) -> tuple[float, str] | None:

@@ -3,7 +3,13 @@
 from .altair import AltairExtension
 from .bokeh import BokehExtension
 from .folium import FoliumExtension
-from .matplotlib import MatplotlibExtension, matplotlib_inline, matplotlib_window
+from .matplotlib import (
+    MatplotlibExtension,
+    matplotlib_inline,
+    matplotlib_widget,
+    matplotlib_window,
+    sync_matplotlib_from_source,
+)
 from .pillow import PillowExtension
 from .pyvista import PyVistaExtension
 
@@ -13,7 +19,9 @@ __all__ = [
     "FoliumExtension",
     "MatplotlibExtension",
     "matplotlib_inline",
+    "matplotlib_widget",
     "matplotlib_window",
+    "sync_matplotlib_from_source",
     "PillowExtension",
     "PyVistaExtension",
 ]

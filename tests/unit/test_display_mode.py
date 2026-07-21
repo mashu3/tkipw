@@ -221,3 +221,19 @@ def test_bqplot_window_uses_figure_layout():
     assert infer_window_size(Figure()) == (700, 500)
     sized = Figure(layout=Layout(width="640px", height="400px"))
     assert infer_window_size(sized) == (640, 400)
+
+
+def test_ipympl_window_uses_figure_pixel_size():
+    pytest.importorskip("ipympl")
+    import matplotlib
+
+    matplotlib.use("module://ipympl.backend_nbagg", force=True)
+    from matplotlib import pyplot as plt
+
+    from tkipw.display_mode import infer_window_size
+
+    fig, _ax = plt.subplots(figsize=(6.4, 3.6), dpi=100)
+    width, height = infer_window_size(fig.canvas)
+    assert width == 640
+    assert height == 360
+    plt.close(fig)

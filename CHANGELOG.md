@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Bundled **ipympl** / **jupyter-matplotlib** front end (``import ipympl`` opts
+  into ``%matplotlib widget``; plain Matplotlib stays PNG/TkAgg; Playground
+  resets per tab from source) with playground sample and `examples/ipympl_demo.py`
 - Bundled **bqplot** / **bqscales** front end (live SVG figures in the WebView)
   with playground sample and `examples/bqplot_demo.py`
 - Bundled **ipycanvas** front end (live `Canvas` in the WebView) with playground
@@ -28,6 +31,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   instead of the raw ``border="1"`` table look
 - Left-align pandas tables; drop window-mode padding and the 480×320 floor so
   pop-ups hug the table
+- Fix ipympl window/pane sizing: drop the fake +48 toolbar gutter, size height
+  for header/footer, stop flex-stretch + ``max-width:100%`` from clipping the
+  canvas, and treat ipympl pop-ups as tight (content pixels)
+- Fix ipympl flex-shrink clipping (canvas-div shrank below inline figsize
+  while the absolute canvas stayed full size) and stop fit/resize feedback
+  loops; simplify window ``_size`` geometry sync
 - Serve `runtime.js` / `runtime.css` as separate loopback assets (HTML stays
   small) so large bundles still boot in desktop WebViews
 - Accept frontend-initiated ``comm_open`` (e.g. bqplot toolbar ``PanZoom``) so

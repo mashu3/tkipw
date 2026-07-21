@@ -54,16 +54,23 @@ __version__ = "0.0.1"
 
 
 def __getattr__(name: str):
-    if name in ("enable_matplotlib", "matplotlib_inline", "matplotlib_window"):
+    if name in (
+        "enable_matplotlib",
+        "matplotlib_inline",
+        "matplotlib_widget",
+        "matplotlib_window",
+    ):
         from .extensions.matplotlib import (
             enable_matplotlib,
             matplotlib_inline,
+            matplotlib_widget,
             matplotlib_window,
         )
 
         return {
             "enable_matplotlib": enable_matplotlib,
             "matplotlib_inline": matplotlib_inline,
+            "matplotlib_widget": matplotlib_widget,
             "matplotlib_window": matplotlib_window,
         }[name]
     if name == "enable_pyvista":

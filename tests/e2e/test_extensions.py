@@ -333,6 +333,100 @@ def test_ipycanvas_renders_and_draws(app):
     )
 
 
+def test_ipympl_canvas_renders(app):
+    pytest.importorskip("ipympl")
+    import ipympl  # noqa: F401
+    from matplotlib import pyplot as plt
+
+    from tkipw.extensions.matplotlib import enable_matplotlib
+    from tkipw.output import display
+
+    try:
+        fig, ax = plt.subplots(figsize=(4.0, 3.0), dpi=80)
+        ax.plot([1, 2, 3], [1, 4, 9], color="#2563eb")
+        fig.tight_layout()
+        display(fig.canvas)
+        assert wait_for_selector(
+            app, "#tkipw-widgets .jupyter-matplotlib", steps=200
+        ), "ipympl canvas DOM missing"
+        assert wait_for_selector(
+            app, "#tkipw-widgets .jupyter-matplotlib-canvas-div canvas", steps=200
+        ), "ipympl drawing canvas missing"
+        layout = eval_json(
+            app,
+            "(function(){"
+            "var div=document.querySelector("
+            "'.jupyter-matplotlib-canvas-div');"
+            "var cvs=div&&div.querySelector('canvas');"
+            "if(!div||!cvs)return null;"
+            "var dr=div.getBoundingClientRect();"
+            "var cr=cvs.getBoundingClientRect();"
+            "return {dw:dr.width,dh:dr.height,cw:cr.width,ch:cr.height};})()",
+            steps=8,
+        )
+        assert isinstance(layout, dict)
+        assert float(layout.get("dw") or 0) >= float(layout.get("cw") or 0) - 4, (
+            f"ipympl canvas clipped by parent: {layout!r}"
+        )
+        assert float(layout.get("cw") or 0) >= 200, f"ipympl canvas too narrow: {layout!r}"
+        # Figure shell must track the canvas width (not shrink via max-width:100%
+        # or stretch-and-clip inside an overflow:hidden Output VBox).
+        shell = eval_json(
+            app,
+            "(function(){"
+            "var fig=document.querySelector('.jupyter-matplotlib-figure');"
+            "var mpl=document.querySelector('.jupyter-matplotlib');"
+            "var div=document.querySelector('.jupyter-matplotlib-canvas-div');"
+            "if(!fig||!mpl||!div)return null;"
+            "var fr=fig.getBoundingClientRect();"
+            "var mr=mpl.getBoundingClientRect();"
+            "var dr=div.getBoundingClientRect();"
+            "return {fw:fr.width,mw:mr.width,dw:dr.width};})()",
+            steps=8,
+        )
+        assert isinstance(shell, dict)
+        assert float(shell.get("fw") or 0) >= float(shell.get("dw") or 0) - 4, (
+            f"ipympl figure narrower than canvas: {shell!r}"
+        )
+        assert float(shell.get("mw") or 0) >= float(shell.get("dw") or 0) - 4, (
+            f"ipympl widget narrower than canvas: {shell!r}"
+        )
+    finally:
+        plt.close("all")
+        enable_matplotlib(mode="inline")
+
+
+def test_ipympl_clear_output_removes_dom(app):
+    """ipympl must not leave orphaned figure nodes after clear_output."""
+    pytest.importorskip("ipympl")
+    import ipympl  # noqa: F401
+    from matplotlib import pyplot as plt
+
+    from tkipw.extensions.matplotlib import enable_matplotlib
+    from tkipw.output import Output, clear_output, display
+
+    results = Output()
+    app.display(results)
+    try:
+        with results:
+            fig, ax = plt.subplots(figsize=(3.0, 2.0), dpi=80)
+            ax.plot([1, 2, 3], [1, 4, 9])
+            display(fig.canvas)
+        assert wait_for_selector(
+            app, "#tkipw-widgets .jupyter-matplotlib", steps=200
+        ), "ipympl canvas DOM missing"
+        with results:
+            clear_output(wait=False)
+        assert wait_until(
+            app.root,
+            lambda: query_count(app, ".jupyter-matplotlib") == 0,
+            steps=200,
+        ), "clear_output left orphaned ipympl DOM"
+    finally:
+        plt.close("all")
+        enable_matplotlib(mode="inline")
+
+
 @pytest.mark.skipif(
     sys.platform.startswith("linux"),
     reason=(

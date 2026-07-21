@@ -78,7 +78,7 @@ def test_pyvista_extension_not_enabled_until_import():
     jupyter_mod.uninstall_jupyter_support()
     try:
         install_jupyter_support()
-        assert jupyter_mod._pyvista_import_hook_installed
+        assert jupyter_mod._lazy_import_hook_installed
         if "pyvista" not in sys.modules:
             assert "pyvista" not in jupyter_mod._enabled
     finally:

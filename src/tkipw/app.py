@@ -114,10 +114,12 @@ html[data-theme="dark"] {
 }
 /* Rich output fills the available pane width.
    Exclude ``.jupyter-button`` — bqplot's hover toolbar reuses that class and
-   must stay compact (not stretched to 100% width). */
-#tkipw-widgets .jupyter-widgets:not(.jupyter-button),
-#tkipw-widgets .widget-box,
-#tkipw-widgets .widget-vbox,
+   must stay compact (not stretched to 100% width).
+   Exclude ipympl canvas nodes — they carry inline pixel sizes; ``width:100%``
+   against a ``fit-content`` figure collapses the plot to a thin strip. */
+#tkipw-widgets .jupyter-widgets:not(.jupyter-button):not(.jupyter-matplotlib):not(.jupyter-matplotlib-canvas-div):not(.jupyter-matplotlib-canvas-container):not(.jupyter-matplotlib-toolbar),
+#tkipw-widgets .widget-box:not(.jupyter-matplotlib):not(.jupyter-matplotlib-figure):not(.jupyter-matplotlib-canvas-container):not(.jupyter-matplotlib-canvas-div):not(.jupyter-matplotlib-toolbar),
+#tkipw-widgets .widget-vbox:not(.jupyter-matplotlib):not(.jupyter-matplotlib-toolbar),
 #tkipw-widgets .widget-html,
 #tkipw-widgets .widget-html > div {
   width: 100% !important;
@@ -172,6 +174,91 @@ html[data-theme="dark"] {
 }
 #tkipw-widgets .bqplot .toolbar_div .fa-save:before {
   content: "⇩";
+}
+/* ipympl toolbar (Font Awesome glyphs omitted from the bundle). */
+#tkipw-widgets .jupyter-matplotlib-button .fa {
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif !important;
+  font-style: normal;
+  font-weight: 700;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--tkipw-fg);
+}
+#tkipw-widgets .jupyter-matplotlib-button .fa:before {
+  font-family: inherit !important;
+}
+#tkipw-widgets .jupyter-matplotlib-button .fa-home:before {
+  content: "⌂";
+}
+#tkipw-widgets .jupyter-matplotlib-button .fa-arrow-left:before {
+  content: "←";
+}
+#tkipw-widgets .jupyter-matplotlib-button .fa-arrow-right:before {
+  content: "→";
+}
+#tkipw-widgets .jupyter-matplotlib-button .fa-square-o:before {
+  content: "▢";
+}
+#tkipw-widgets .jupyter-matplotlib-button .fa-arrows:before {
+  content: "↔";
+}
+#tkipw-widgets .jupyter-matplotlib-button .fa-floppy-o:before {
+  content: "⇩";
+}
+#tkipw-widgets .jupyter-matplotlib-button .fa-file-picture-o:before {
+  content: "🖼";
+}
+/* ipympl: leave ``.jupyter-matplotlib-canvas-div`` alone — it sets inline
+   ``width``/``height`` in px. Any ``width: … !important`` here overrides that
+   and the absolutely-positioned canvas no longer expands its parent.
+   ``align-self:flex-start`` stops the flex Output VBox from stretching the
+   shell to the pane width while the canvas stays at figure pixels (looks
+   like a clipped / padded strip). ``max-width:100%`` on the figure would
+   shrink the box below the canvas and clip via overflow:hidden. */
+#tkipw-widgets .jupyter-matplotlib {
+  width: fit-content !important;
+  max-width: none !important;
+  flex: 0 0 auto !important;
+  align-self: flex-start !important;
+}
+#tkipw-widgets .jupyter-matplotlib-figure {
+  width: fit-content !important;
+  max-width: none !important;
+  overflow: hidden;
+}
+#tkipw-widgets .widget-box:has(.jupyter-matplotlib),
+#tkipw-widgets .widget-vbox:has(.jupyter-matplotlib),
+#tkipw-widgets .lm-Panel:has(.jupyter-matplotlib) {
+  overflow: visible !important;
+  align-items: flex-start !important;
+}
+#tkipw-widgets .jupyter-matplotlib-toolbar {
+  width: auto !important;
+  max-width: none !important;
+}
+#tkipw-widgets .jupyter-matplotlib-button {
+  width: calc(var(--jp-widgets-inline-width-tiny, 64px) / 2 - 2px) !important;
+}
+/* Drop ipympl notebook chrome (Figure N / status). Playground already labels
+   sections; pop-up geometry is figure pixels without these bands. */
+#tkipw-widgets .jupyter-matplotlib-header,
+#tkipw-widgets .jupyter-matplotlib-footer {
+  display: none !important;
+  min-height: 0 !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+/* ipympl defaults to margin:2px on canvas-div / labels — that inflates the
+   shell past figure pixels and clips inside overflow:hidden sections. */
+#tkipw-widgets .jupyter-matplotlib-canvas-div,
+#tkipw-widgets .jupyter-matplotlib-canvas-container {
+  margin: 0 !important;
+  /* Upstream uses flex:1 1 auto — the div then shrinks below its inline
+     pixel width while the absolutely-positioned canvas stays at figsize,
+     so overflow:hidden on the figure clips the plot. */
+  flex: 0 0 auto !important;
 }
 /* Keep stacked sections from being covered by overflowing embeds. */
 #tkipw-widgets .widget-vbox {
@@ -416,15 +503,18 @@ body.tkipw-compact #tkipw-widgets .widget-html pre {
    Do not match bare ``img`` — ipyleaflet tiles/markers are also ``img`` and
    must keep Leaflet's pixel sizes (``width/height: 100%`` collapses them).
    Pillow uses ``img.tkipw-raster`` instead.
-   ``canvas`` / ``.bqplot`` / ``table.dataframe`` only clear padding
+   ``canvas`` alone is ipycanvas; ipympl also has ``canvas`` but must not share
+   that path (its figure is pixel-sized, not a full-bleed fill).
+   ``.bqplot`` / ``table.dataframe`` only clear padding
    (pixel- or content-sized); do not stretch them to 100% like maps. */
 body.tkipw-compact #tkipw-widgets:has(iframe),
 body.tkipw-compact #tkipw-widgets:has(.widget-image),
 body.tkipw-compact #tkipw-widgets:has(.leaflet-container),
 body.tkipw-compact #tkipw-widgets:has(img.tkipw-raster),
-body.tkipw-compact #tkipw-widgets:has(canvas),
+body.tkipw-compact #tkipw-widgets:has(canvas):not(:has(.jupyter-matplotlib)),
 body.tkipw-compact #tkipw-widgets:has(.bqplot),
-body.tkipw-compact #tkipw-widgets:has(table.dataframe) {
+body.tkipw-compact #tkipw-widgets:has(table.dataframe),
+body.tkipw-compact #tkipw-widgets:has(.jupyter-matplotlib) {
   padding: 0;
   overflow: hidden;
 }

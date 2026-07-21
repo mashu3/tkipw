@@ -53,6 +53,7 @@ def test_compact_shell_zero_pads_canvas_and_bqplot():
 
     assert ":has(canvas)" in _SHELL_CSS
     assert ":has(.bqplot)" in _SHELL_CSS
+    assert ":has(.jupyter-matplotlib)" in _SHELL_CSS
     # Stretch-to-fill is for maps/images only — not canvas/bqplot.
     assert ":has(canvas) .jupyter-widgets" not in _SHELL_CSS
     assert ":has(.bqplot) .jupyter-widgets" not in _SHELL_CSS

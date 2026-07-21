@@ -137,6 +137,77 @@ class TestMatplotlib:
         with pytest.raises(ValueError, match="inline"):
             set_display_mode("popup")  # type: ignore[arg-type]
 
+    def test_widget_mode_transforms_figure_to_ipympl_canvas(self):
+        pytest.importorskip("ipympl")
+        install_jupyter_support()
+        import ipympl  # noqa: F401
+        from matplotlib import pyplot as plt
+
+        from tkipw.extensions.matplotlib import enable_matplotlib
+        from tkipw.jupyter import get_extension
+
+        ext = get_extension("matplotlib")
+        assert ext is not None
+        assert ext.mode == "widget"  # type: ignore[union-attr]
+
+        fig, ax = plt.subplots()
+        ax.plot([1.0, 2.0, 3.0])
+        widget = to_widget(fig)
+        assert widget is fig.canvas
+        assert widget._model_module == "jupyter-matplotlib"
+        assert widget._view_module == "jupyter-matplotlib"
+        assert widget._model_name == "MPLCanvasModel"
+        assert fig.canvas.toolbar._model_module == "jupyter-matplotlib"
+
+        enable_matplotlib(mode="inline")
+
+    def test_sync_matplotlib_preserves_widget_mode(self):
+        pytest.importorskip("ipympl")
+        install_jupyter_support()
+        import ipympl  # noqa: F401
+
+        from tkipw.display_mode import set_display_mode
+        from tkipw.extensions.matplotlib import enable_matplotlib
+        from tkipw.jupyter import get_extension
+
+        assert get_extension("matplotlib").mode == "widget"  # type: ignore[union-attr]
+        set_display_mode("window")
+        assert get_extension("matplotlib").mode == "widget"  # type: ignore[union-attr]
+        enable_matplotlib(mode="inline")
+        assert get_extension("matplotlib").mode == "inline"  # type: ignore[union-attr]
+
+    def test_import_matplotlib_alone_stays_non_widget(self):
+        pytest.importorskip("matplotlib")
+        install_jupyter_support()
+        from tkipw.extensions.matplotlib import enable_matplotlib
+        from tkipw.jupyter import get_extension
+
+        # Explicit inline must stick even if a prior test imported ipympl.
+        enable_matplotlib(mode="inline")
+        assert get_extension("matplotlib").mode == "inline"  # type: ignore[union-attr]
+        import matplotlib.pyplot as plt  # noqa: F401
+
+        assert get_extension("matplotlib").mode == "inline"  # type: ignore[union-attr]
+
+    def test_sync_matplotlib_from_source_splits_ipympl_and_matplotlib(self):
+        pytest.importorskip("ipympl")
+        install_jupyter_support()
+        from tkipw.extensions.matplotlib import (
+            enable_matplotlib,
+            sync_matplotlib_from_source,
+        )
+        from tkipw.jupyter import get_extension
+
+        sync_matplotlib_from_source("import ipympl\nimport matplotlib.pyplot as plt\n")
+        assert get_extension("matplotlib").mode == "widget"  # type: ignore[union-attr]
+
+        sync_matplotlib_from_source(
+            "import matplotlib.pyplot as plt\nimport numpy as np\n"
+        )
+        assert get_extension("matplotlib").mode == "inline"  # type: ignore[union-attr]
+
+        enable_matplotlib(mode="inline")
+
 
 class TestPyVista:
     def test_enable_sets_notebook_theme(self):

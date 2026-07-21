@@ -28,9 +28,11 @@ _bridge_installed = False
 _builtins_loaded = False
 _original_ipython_display: Any | None = None
 _original_builtins_import: Any | None = None
-_pyvista_import_hook_installed = False
+_lazy_import_hook_installed = False
 _pyvista_enabling = False
 _pyvista_import_depth = 0
+_ipympl_enabling = False
+_ipympl_import_depth = 0
 
 
 class JupyterEventLoop:
@@ -123,12 +125,13 @@ def install_jupyter_support() -> None:
     """Install IPython display routing and available built-in adapters."""
     _install_ipython_display_bridge()
     _load_builtin_extensions()
+    # Defer PyVista / ipympl side effects until those packages are imported.
+    _install_lazy_import_hook()
     # Re-enable registered extensions after a previous teardown.
     for name in tuple(_extensions):
         if name == "pyvista":
             # PyVista pulls in VTK/trame/aiohttp at setup time. Loading that
             # stack during App startup races WebView2 creation on Windows.
-            _install_pyvista_lazy_hook()
             continue
         try:
             enable_extension(name)
@@ -137,6 +140,8 @@ def install_jupyter_support() -> None:
             # library must not prevent the remaining display bridge from
             # being installed.
             continue
+    # If ipympl was imported before the App, switch Matplotlib now.
+    _try_enable_ipympl()
 
 
 def _install_ipython_display_bridge() -> None:
@@ -174,7 +179,7 @@ def uninstall_jupyter_support() -> None:
             except Exception:
                 pass
     _enabled.clear()
-    _uninstall_pyvista_lazy_hook()
+    _uninstall_lazy_import_hook()
 
     if not _bridge_installed:
         return
@@ -261,10 +266,46 @@ def _try_enable_pyvista() -> None:
         _pyvista_enabling = False
 
 
-def _install_pyvista_lazy_hook() -> None:
-    """Defer PyVista setup until ``import pyvista`` (avoids VTK at App boot)."""
-    global _pyvista_import_hook_installed, _original_builtins_import
-    if _pyvista_import_hook_installed:
+def _try_enable_ipympl() -> None:
+    """Switch Matplotlib to the ipympl WebView backend after ``import ipympl``.
+
+    Plain ``import matplotlib`` keeps the App's inline PNG / window TkAgg path.
+    """
+    global _ipympl_enabling
+    if _ipympl_enabling or "matplotlib" not in _extensions:
+        return
+    import sys
+
+    if "ipympl" not in sys.modules and not any(
+        name.startswith("ipympl.") for name in sys.modules
+    ):
+        return
+
+    from .extensions.matplotlib import MatplotlibExtension
+
+    existing = get_extension("matplotlib")
+    if (
+        isinstance(existing, MatplotlibExtension)
+        and existing.mode == "widget"
+        and getattr(existing, "_setup", False)
+    ):
+        return
+
+    _ipympl_enabling = True
+    try:
+        from .extensions.matplotlib import enable_matplotlib
+
+        enable_matplotlib(mode="widget")
+    except ImportError:
+        pass
+    finally:
+        _ipympl_enabling = False
+
+
+def _install_lazy_import_hook() -> None:
+    """Defer PyVista / ipympl setup until those packages are imported."""
+    global _lazy_import_hook_installed, _original_builtins_import
+    if _lazy_import_hook_installed:
         return
     _original_builtins_import = builtins.__import__
 
@@ -275,28 +316,35 @@ def _install_pyvista_lazy_hook() -> None:
         fromlist: tuple[str, ...] = (),
         level: int = 0,
     ) -> Any:
-        global _pyvista_import_depth
+        global _pyvista_import_depth, _ipympl_import_depth
         assert _original_builtins_import is not None
-        track = name == "pyvista"
-        if track:
+        track_pyvista = name == "pyvista" or name.startswith("pyvista.")
+        track_ipympl = name == "ipympl" or name.startswith("ipympl.")
+        if track_pyvista:
             _pyvista_import_depth += 1
+        if track_ipympl:
+            _ipympl_import_depth += 1
         try:
             module = _original_builtins_import(name, globals, locals, fromlist, level)
         finally:
-            if track:
+            if track_pyvista:
                 _pyvista_import_depth -= 1
                 if _pyvista_import_depth == 0:
                     _try_enable_pyvista()
+            if track_ipympl:
+                _ipympl_import_depth -= 1
+                if _ipympl_import_depth == 0:
+                    _try_enable_ipympl()
         return module
 
     builtins.__import__ = _hooked_import  # type: ignore[assignment]
-    _pyvista_import_hook_installed = True
+    _lazy_import_hook_installed = True
 
 
-def _uninstall_pyvista_lazy_hook() -> None:
-    global _pyvista_import_hook_installed, _original_builtins_import
-    if not _pyvista_import_hook_installed or _original_builtins_import is None:
+def _uninstall_lazy_import_hook() -> None:
+    global _lazy_import_hook_installed, _original_builtins_import
+    if not _lazy_import_hook_installed or _original_builtins_import is None:
         return
     builtins.__import__ = _original_builtins_import
     _original_builtins_import = None
-    _pyvista_import_hook_installed = False
+    _lazy_import_hook_installed = False

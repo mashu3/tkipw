@@ -205,6 +205,21 @@ plt.grid(True, alpha=0.3)
 plt.tight_layout()
 plt.show()
 """,
+    "ipympl": """\
+# Interactive Matplotlib in the WebView (%matplotlib widget).
+# ``import ipympl`` opts in; the matplotlib sample (no ipympl) stays PNG/TkAgg.
+import matplotlib.pyplot as plt
+import ipympl  # noqa: F401
+import numpy as np
+
+fig, ax = plt.subplots(figsize=(6.4, 3.6), dpi=100)
+x = np.linspace(0, 2 * np.pi, 200)
+ax.plot(x, np.sin(3 * x), color="#2563eb", lw=2)
+ax.set_title("ipympl")
+ax.grid(True, alpha=0.3)
+fig.tight_layout()
+display(fig.canvas)
+""",
     "pyvista": """\
 import pyvista as pv
 
@@ -417,12 +432,19 @@ class StackedOutput(out.Output):
             )
         # overflow:hidden keeps folium/leaflet iframes from covering
         # neighboring section chrome after map interaction resizes them.
+        # ipympl is pixel-sized (and JS may shrink-to-fit); clipping the
+        # section hides part of the canvas before resize lands.
+        overflow = "hidden"
+        if len(items) == 1 and getattr(items[0], "_model_module", None) == (
+            "jupyter-matplotlib"
+        ):
+            overflow = "visible"
         section = widgets.VBox(
             [header, body],
             layout=widgets.Layout(
                 width="100%",
                 margin="0 0 12px 0",
-                overflow="hidden",
+                overflow=overflow,
             ),
         )
         section.add_class("tkipw-section")
@@ -2376,6 +2398,14 @@ class Playground:
                 with out.capture_stdio(), self._tkinter_run_sandbox():
                     previous_trace = sys.gettrace()
                     next_pump = time.monotonic()
+                    try:
+                        from tkipw.extensions.matplotlib import (
+                            sync_matplotlib_from_source,
+                        )
+
+                        sync_matplotlib_from_source(code)
+                    except Exception:
+                        pass
 
                     def execution_trace(frame, event, arg):
                         del event, arg
