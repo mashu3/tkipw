@@ -353,9 +353,9 @@ def test_ipycanvas_renders_in_window_mode():
         assert wait_until(popup.root, lambda: popup._ready, steps=200), (
             "popup runtime never became ready"
         )
-        assert wait_for_selector(
-            popup, "#tkipw-widgets canvas", steps=200
-        ), "ipycanvas DOM missing in window mode"
+        assert wait_for_selector(popup, "#tkipw-widgets canvas", steps=200), (
+            "ipycanvas DOM missing in window mode"
+        )
 
         with hold_canvas():
             canvas.fill_style = "#f59e0b"
