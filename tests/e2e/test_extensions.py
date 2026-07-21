@@ -283,6 +283,117 @@ def test_ipyleaflet_map_renders_in_window_mode():
         host.destroy()
 
 
+def test_ipycanvas_renders_and_draws(app):
+    pytest.importorskip("ipycanvas")
+    from ipycanvas import Canvas, hold_canvas
+
+    from tkipw.output import display
+
+    canvas = Canvas(width=240, height=160)
+    display(canvas)
+    assert wait_for_selector(app, "#tkipw-widgets canvas"), "ipycanvas DOM missing"
+
+    with hold_canvas():
+        canvas.fill_style = "#2563eb"
+        canvas.fill_rect(0, 0, canvas.width, canvas.height)
+
+    def canvas_is_filled() -> bool:
+        sample = eval_json(
+            app,
+            "(function(){var c=document.querySelector('#tkipw-widgets canvas');"
+            "if(!c)return null;var ctx=c.getContext('2d');"
+            "var p=ctx.getImageData(10,10,1,1).data;"
+            "return {w:c.width,h:c.height,r:p[0],g:p[1],b:p[2],a:p[3]};})()",
+            steps=8,
+        )
+        return (
+            isinstance(sample, dict)
+            and sample.get("w") == 240
+            and sample.get("h") == 160
+            and sample.get("r") == 37
+            and sample.get("g") == 99
+            and sample.get("b") == 235
+            and sample.get("a") == 255
+        )
+
+    assert wait_until(app.root, canvas_is_filled, steps=200), (
+        "ipycanvas fill_rect did not reach the frontend"
+    )
+
+
+@pytest.mark.skipif(
+    sys.platform.startswith("linux"),
+    reason=(
+        "WebKitGTK stalls creating a WebView under a withdrawn window-mode "
+        "host and/or polling canvas pixels via eval_js_with_callback"
+    ),
+)
+def test_ipycanvas_renders_in_window_mode():
+    """Window pop-ups must replay Canvas + CanvasManager to the new manager."""
+    pytest.importorskip("ipycanvas")
+    from ipycanvas import Canvas, hold_canvas
+
+    from tkipw import App
+    from tkipw.output import display
+
+    host = App(
+        title="tkipw-e2e-ipycanvas-window",
+        display_mode="window",
+        width=200,
+        height=120,
+    )
+    try:
+        pump(host.root, steps=5)
+        canvas = Canvas(width=320, height=200)
+        display(canvas)
+
+        windows = getattr(host, "_display_windows", []) or []
+        assert windows, "window-mode display did not open a pop-up"
+        popup = windows[-1]
+        assert wait_until(popup.root, lambda: popup._ready, steps=200), (
+            "popup runtime never became ready"
+        )
+        assert wait_for_selector(
+            popup, "#tkipw-widgets canvas", steps=200
+        ), "ipycanvas DOM missing in window mode"
+
+        with hold_canvas():
+            canvas.fill_style = "#f59e0b"
+            canvas.fill_rect(0, 0, canvas.width, canvas.height)
+
+        assert "javascript error" not in dom_text(popup).lower()
+
+        def canvas_is_filled() -> bool:
+            sample = eval_json(
+                popup,
+                "(function(){var c=document.querySelector('#tkipw-widgets canvas');"
+                "if(!c)return null;var ctx=c.getContext('2d');"
+                "var p=ctx.getImageData(5,5,1,1).data;"
+                "return {w:c.width,h:c.height,r:p[0],g:p[1],b:p[2],a:p[3]};})()",
+                steps=8,
+            )
+            return (
+                isinstance(sample, dict)
+                and sample.get("w") == 320
+                and sample.get("h") == 200
+                and sample.get("r") == 245
+                and sample.get("g") == 158
+                and sample.get("b") == 11
+                and sample.get("a") == 255
+            )
+
+        assert wait_until(popup.root, canvas_is_filled, steps=200), (
+            "ipycanvas drawing missing in window-mode pop-up"
+        )
+    finally:
+        for popup in list(getattr(host, "_display_windows", []) or []):
+            try:
+                popup.destroy()
+            except Exception:
+                pass
+        host.destroy()
+
+
 def test_html_widget_and_label_stack(app):
     from tkipw.output import display
 

@@ -80,6 +80,33 @@ class TestRouting:
         pop_bridge(b)
         pop_bridge(a)
 
+    def test_comm_msg_fans_out_to_bridges_that_host_the_model(self):
+        host = RecordingBridge("host")
+        popup = RecordingBridge("popup")
+        push_bridge(host)
+
+        slider = widgets.IntSlider(value=1)
+        assert slider.model_id in host._known_model_ids
+
+        from tkipw.manager import prepare_widgets
+
+        # Real pop-up Apps are pushed onto the bridge stack (then the host is
+        # re-activated). Fan-out only considers bridges still on the stack.
+        push_bridge(popup)
+        prepare_widgets([slider], bridge=popup)
+        assert slider.model_id in popup._known_model_ids
+        push_bridge(host)
+
+        before_host = len(host.messages_of_type("comm_msg"))
+        before_popup = len(popup.messages_of_type("comm_msg"))
+        slider.value = 9
+
+        assert len(host.messages_of_type("comm_msg")) == before_host + 1
+        assert len(popup.messages_of_type("comm_msg")) == before_popup + 1
+
+        pop_bridge(host)
+        pop_bridge(popup)
+
     def test_pending_messages_flush_to_first_pushed_bridge(self):
         set_bridge(None)
         # No bridge yet -> comm_open is queued.

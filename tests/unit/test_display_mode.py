@@ -193,3 +193,12 @@ def test_ipyleaflet_window_uses_map_layout_or_readable_default():
     assert infer_window_size(sized) == (800, 520)
     responsive = ipyleaflet.Map(layout=Layout(width="100%", height="360px"))
     assert infer_window_size(responsive) == (720, 360)
+
+
+def test_ipycanvas_window_uses_canvas_pixel_size():
+    ipycanvas = pytest.importorskip("ipycanvas")
+
+    from tkipw.display_mode import infer_window_size
+
+    assert infer_window_size(ipycanvas.Canvas(width=640, height=360)) == (640, 360)
+    assert infer_window_size(ipycanvas.Canvas()) == (700, 500)

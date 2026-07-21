@@ -26,6 +26,18 @@ class TestIpyleaflet:
         assert widget_map._model_module_version.startswith("^0.20")
 
 
+class TestIpycanvas:
+    def test_canvas_uses_bundled_ipycanvas_module(self):
+        ipycanvas = pytest.importorskip("ipycanvas")
+
+        canvas = ipycanvas.Canvas(width=120, height=80)
+        assert to_widget(canvas) is canvas
+        assert canvas._model_module == "ipycanvas"
+        assert canvas._view_module == "ipycanvas"
+        assert canvas._model_module_version.startswith("^0.13")
+        assert canvas._canvas_manager._model_module == "ipycanvas"
+
+
 class TestMatplotlib:
     def test_figure_is_transformed_to_png(self):
         pytest.importorskip("matplotlib")

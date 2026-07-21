@@ -13,6 +13,7 @@ from comm.base_comm import BaseComm
 _install_lock = threading.Lock()
 _installed = False
 _original_create_comm: Any | None = None
+_original_widget_open: Any | None = None
 
 # Widgets may be constructed before App() exists; queue until a bridge is ready.
 _pending: list[dict[str, Any]] = []
@@ -97,11 +98,26 @@ def _decode_buffers(buffers: list[str] | None) -> list[bytes]:
 
 
 def _publish(msg: dict[str, Any]) -> None:
-    bridge = get_bridge()
-    if bridge is None:
+    if not _bridge_stack:
         _pending.append(msg)
         return
-    bridge.send_to_js(msg)
+    # Fan-out live updates to every App that already hosts this model.
+    # Window-mode pop-ups replay ``comm_open`` into a second JS manager; trait
+    # / custom-message traffic must reach those managers too, not only the
+    # currently active (usually host) bridge.
+    msg_type = msg.get("msg_type")
+    comm_id = msg.get("comm_id")
+    if msg_type == "comm_msg" and isinstance(comm_id, str):
+        targets = [
+            bridge
+            for bridge in _bridge_stack
+            if comm_id in getattr(bridge, "_known_model_ids", ())
+        ]
+        if targets:
+            for bridge in targets:
+                bridge.send_to_js(msg)
+            return
+    _bridge_stack[-1].send_to_js(msg)
 
 
 class TkwryComm(BaseComm):
@@ -150,26 +166,61 @@ def create_tkwry_comm(*args: Any, **kwargs: Any) -> TkwryComm:
     return TkwryComm(*args, **kwargs)
 
 
+def _open_widget_with_deps(widget: Any, *args: Any, **kwargs: Any) -> Any:
+    """Open dependency widgets before *widget* so nested ``IPY_MODEL`` refs resolve.
+
+    ipycanvas shares a process-wide ``CanvasManager``. That manager may already
+    hold a :class:`TkwryComm` from an earlier App; replaying its ``comm_open``
+    into the active bridge must happen before ``Canvas`` itself opens, or the
+    frontend falls back to an error widget.
+    """
+    if _original_widget_open is None:
+        raise RuntimeError("widget open patch is not installed")
+    bridge = get_bridge()
+    for ref in _iter_widget_refs(widget):
+        if ref is widget:
+            continue
+        current = getattr(ref, "comm", None)
+        if isinstance(current, TkwryComm):
+            register_comm(current)
+            if bridge is not None:
+                replay_widget_open(ref, bridge)
+            continue
+        # Nested open also runs this patched path (deps-of-deps first).
+        ref.open()
+    return _original_widget_open(widget, *args, **kwargs)
+
+
 def install_comm_backend() -> None:
     """Replace ``comm.create_comm`` so new widgets use :class:`TkwryComm`."""
-    global _installed, _original_create_comm
+    global _installed, _original_create_comm, _original_widget_open
     with _install_lock:
         if _installed:
             return
         _original_create_comm = comm.create_comm
         comm.create_comm = create_tkwry_comm  # type: ignore[assignment]
+
+        from ipywidgets import Widget
+
+        _original_widget_open = Widget.open
+        Widget.open = _open_widget_with_deps  # type: ignore[method-assign]
         _installed = True
 
 
 def uninstall_comm_backend() -> None:
     """Restore the original ``comm.create_comm`` (undo :func:`install_comm_backend`)."""
-    global _installed, _original_create_comm
+    global _installed, _original_create_comm, _original_widget_open
     with _install_lock:
         if not _installed:
             return
         if _original_create_comm is not None:
             comm.create_comm = _original_create_comm  # type: ignore[assignment]
         _original_create_comm = None
+        if _original_widget_open is not None:
+            from ipywidgets import Widget
+
+            Widget.open = _original_widget_open  # type: ignore[method-assign]
+            _original_widget_open = None
         _installed = False
 
 

@@ -283,6 +283,27 @@ widget_map = Map(
 widget_map.add(Marker(location=tokyo, title="Tokyo Station"))
 display(widget_map)
 """,
+    "ipycanvas": """\
+from ipycanvas import Canvas, hold_canvas
+
+canvas = Canvas(width=640, height=360)
+display(canvas)
+
+with hold_canvas():
+    canvas.fill_style = "#eff6ff"
+    canvas.fill_rect(0, 0, canvas.width, canvas.height)
+
+    canvas.fill_style = "#2563eb"
+    canvas.fill_rect(40, 40, 200, 120)
+
+    canvas.stroke_style = "#f59e0b"
+    canvas.line_width = 4
+    canvas.stroke_circle(420, 180, 80)
+
+    canvas.fill_style = "#0f172a"
+    canvas.font = "24px sans-serif"
+    canvas.fill_text("ipycanvas in tkipw", 40, 320)
+""",
     "pillow": """\
 from PIL import Image, ImageDraw
 

@@ -160,3 +160,16 @@ def test_walk_widgets_includes_ipyleaflet_layers_and_controls():
         assert style.model_id in ids
         assert found.index(style) < found.index(widget_map)
     assert found[-1] is widget_map
+
+
+def test_walk_widgets_includes_ipycanvas_manager():
+    pytest.importorskip("ipycanvas")
+    from ipycanvas import Canvas
+
+    canvas = Canvas(width=100, height=80)
+    found = walk_widgets(canvas)
+    ids = {w.model_id for w in found}
+    assert canvas.model_id in ids
+    assert canvas._canvas_manager.model_id in ids
+    assert found.index(canvas._canvas_manager) < found.index(canvas)
+    assert found[-1] is canvas

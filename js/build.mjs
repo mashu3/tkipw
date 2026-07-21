@@ -46,7 +46,11 @@ const buildResult = await esbuild.build({
   sourcemap: false,
   minify: true,
   banner: {
-    js: "var __webpack_public_path__ = __webpack_public_path__ || '';",
+    js: [
+      "var __webpack_public_path__ = __webpack_public_path__ || '';",
+      // ipycanvas → buffer expects Node's ``global`` in the browser bundle.
+      "var global = typeof globalThis !== 'undefined' ? globalThis : window;",
+    ].join(" "),
   },
   loader: {
     ".css": "css",

@@ -35,6 +35,11 @@ ipyleaflet / jupyter-leaflet
   License: MIT
   https://github.com/jupyter-widgets/ipyleaflet
 
+ipycanvas
+  Copyright (c) Martin Renou
+  License: BSD-3-Clause
+  https://github.com/jupyter-widgets-contrib/ipycanvas
+
 ------------------------------------------------------------------------
 
 The prebuilt front-end bundle (tkipw/html/runtime.js and runtime.css, produced
@@ -69,3 +74,8 @@ Leaflet and the Leaflet plugins bundled by jupyter-leaflet
   Licenses: BSD-2-Clause, BSD-3-Clause, MIT, ISC, and Beerware
   https://github.com/Leaflet/Leaflet
   https://github.com/jupyter-widgets/ipyleaflet
+
+Rough.js (bundled via ipycanvas for RoughCanvas)
+  Copyright (c) 2019 Preet Patel
+  License: MIT
+  https://github.com/rough-stuff/rough

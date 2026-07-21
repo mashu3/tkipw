@@ -5,6 +5,7 @@ import { HTMLManager } from "@jupyter-widgets/html-manager";
 import * as base from "@jupyter-widgets/base";
 import * as controls from "@jupyter-widgets/controls";
 import * as jupyterLeaflet from "jupyter-leaflet";
+import * as ipycanvas from "ipycanvas";
 
 // CSS for ipywidgets 8 controls
 import "@jupyter-widgets/controls/css/widgets-base.css";
@@ -174,6 +175,9 @@ class TkipwManager extends HTMLManager {
         if (moduleName === "jupyter-leaflet") {
           return Promise.resolve(jupyterLeaflet);
         }
+        if (moduleName === "ipycanvas") {
+          return Promise.resolve(ipycanvas);
+        }
         return Promise.reject(
           new Error(`Unknown widget module: ${moduleName}`)
         );
@@ -206,6 +210,9 @@ class TkipwManager extends HTMLManager {
         }
         if (moduleName === "jupyter-leaflet") {
           return jupyterLeaflet;
+        }
+        if (moduleName === "ipycanvas") {
+          return ipycanvas;
         }
         if (this.loader) {
           return this.loader(moduleName, moduleVersion);
@@ -286,9 +293,27 @@ class TkipwManager extends HTMLManager {
     if (!comm) return;
     const data = msg.data || {};
     const buffers = decodeBuffers(msg.buffers);
-    applyBuffersAsUint8(data, buffers);
-    // WidgetModel._handle_comm_msg may return a Promise (async serializers).
-    return Promise.resolve(comm.handle_msg(data, []));
+    const paths = data.buffer_paths || [];
+    if (paths.length) {
+      // Trait updates: install Uint8Array into state (WKWebView-safe) and
+      // clear buffer_paths so WidgetModel won't convert back to DataView.
+      applyBuffersAsUint8(data, buffers);
+      return Promise.resolve(comm.handle_msg(data, []));
+    }
+    // Custom messages (ipycanvas draw commands, etc.) pass naked buffers.
+    return Promise.resolve(
+      comm.handle_msg(
+        data,
+        buffers.map((b) => {
+          if (b instanceof Uint8Array) return b;
+          if (b instanceof ArrayBuffer) return new Uint8Array(b);
+          if (ArrayBuffer.isView(b)) {
+            return new Uint8Array(b.buffer, b.byteOffset, b.byteLength);
+          }
+          return b;
+        })
+      )
+    );
   }
 
   handlePythonCommClose(msg) {

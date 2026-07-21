@@ -292,6 +292,10 @@ def _size_from_object(obj: Any) -> tuple[int, int] | None:
     if module.startswith("ipyleaflet"):
         return _ipyleaflet_size(obj)
 
+    # ipycanvas Canvas / MultiCanvas expose pixel width/height traits.
+    if module.startswith("ipycanvas"):
+        return _ipycanvas_size(obj)
+
     # IPython Markdown / any object that only exposes markdown (no pixel size).
     if _is_markdown_object(obj):
         return _MARKDOWN_WINDOW_SIZE
@@ -395,6 +399,15 @@ def _ipyleaflet_size(obj: Any) -> tuple[int, int]:
     width = px(getattr(layout, "width", None)) or 720
     height = px(getattr(layout, "height", None)) or 480
     return max(width, 320), max(height, 240)
+
+
+def _ipycanvas_size(obj: Any) -> tuple[int, int]:
+    try:
+        width = int(getattr(obj, "width", 700) or 700)
+        height = int(getattr(obj, "height", 500) or 500)
+    except (TypeError, ValueError):
+        return 700, 500
+    return max(width, 200), max(height, 160)
 
 
 def _dim_pair(value: Any) -> tuple[float, str] | None:

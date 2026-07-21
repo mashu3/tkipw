@@ -30,6 +30,7 @@ WebView that lives *inside* a Tk `Frame` (via tkwry's child-window embedding).
 * **Real widgets** — the official `@jupyter-widgets/html-manager` runs the same controls you use in Jupyter
 * **anywidget** — bundled front end (e.g. Plotly `FigureWidget`)
 * **ipyleaflet** — bundled live Leaflet widget module (Python ↔ map trait updates)
+* **ipycanvas** — bundled Canvas widget module (Python drawing commands ↔ WebView)
 * **Notebook-like display** — `display()`, `clear_output()`, `Output`, `plt.show()`, tracebacks, and `logging` all show up in an output area
 * **One event loop** — everything runs on Tk's `mainloop`
 
@@ -39,7 +40,7 @@ WebView that lives *inside* a Tk `Frame` (via tkwry's child-window embedding).
 
 * Python 3.10+
 * [tkwry](https://github.com/mashu3/tkwry) (system WebView: WebView2 on Windows, WKWebView on macOS, WebKitGTK on Linux — see tkwry's platform notes)
-* `ipywidgets>=8,<9`
+* [ipywidgets](https://github.com/jupyter-widgets/ipywidgets) 8.x
 
 The bundled widget runtime is inlined into the shell HTML. The Playground's
 Monaco editor and standalone Altair / Bokeh documents load their JavaScript
@@ -53,6 +54,7 @@ committed to the repo). It embeds:
 
 * **Jupyter Widgets** (`@jupyter-widgets/*`) and **Lumino** — BSD-3-Clause
 * **anywidget**, **jupyter-leaflet**, **jQuery**, **Backbone.js** — MIT
+* **ipycanvas** (and Rough.js) — BSD-3-Clause / MIT
 * **Leaflet** and its map plugins — BSD / MIT / ISC / Beerware
 * **Font Awesome Free** icon styles (pulled in by Jupyter Widgets; font binaries
   are stripped at build time) — MIT / CC BY 4.0 / SIL OFL 1.1
@@ -65,12 +67,22 @@ All are permissively licensed and redistributable; attributions are collected in
 
 ## 📦 Installation
 
+From PyPI (prebuilt front end included — no `npm` / Node required):
+
 ```bash
-pip install -e .
-pip install -e ".[demo]"   # plotting, data, image, and 3D demos
+pip install tkipw
+pip install "tkipw[demo]"   # plotting, data, image, and 3D demos
 ```
 
-Rebuild the front end only if you change `js/`:
+From a source checkout (editable):
+
+```bash
+pip install -e .
+pip install -e ".[demo]"
+```
+
+Rebuild the front end only when you change `js/` (or after a fresh clone
+before the first editable run, if `runtime.js` is not present yet):
 
 ```bash
 cd js && npm install && npm run build
@@ -150,10 +162,11 @@ The monkey-patches are also individually reversible:
 ## 📁 Examples
 
 ```bash
-pip install -e ".[demo]"
+pip install "tkipw[demo]"        # or: pip install -e ".[demo]"
 python examples/playground.py    # inline: Monaco editor + stacked output
 python examples/plotly_demo.py   # window: Plotly FigureWidget pop-up
 python examples/ipyleaflet_demo.py # window: live ipyleaflet map pop-up
+python examples/ipycanvas_demo.py  # window: live ipycanvas Canvas pop-up
 python examples/bokeh_demo.py    # window: Bokeh ``show(plot)`` pop-up
 python examples/altair_demo.py   # window: Altair ``display(chart)`` pop-up
 python examples/pillow_demo.py   # window: Pillow ``Image.show()`` pop-up
@@ -164,6 +177,7 @@ python examples/pillow_demo.py   # window: Pillow ``Image.show()`` pop-up
 | [`examples/playground.py`](examples/playground.py) | inline | Monaco multi-tab editor + stacked live output |
 | [`examples/plotly_demo.py`](examples/plotly_demo.py) | window | Plotly `FigureWidget` in a Tk pop-up |
 | [`examples/ipyleaflet_demo.py`](examples/ipyleaflet_demo.py) | window | Live ipyleaflet widget map in a Tk pop-up |
+| [`examples/ipycanvas_demo.py`](examples/ipycanvas_demo.py) | window | Live ipycanvas `Canvas` in a Tk pop-up |
 | [`examples/bokeh_demo.py`](examples/bokeh_demo.py) | window | Bokeh `show(plot)` in a Tk pop-up |
 | [`examples/altair_demo.py`](examples/altair_demo.py) | window | Altair `display(chart)` in a Tk pop-up |
 | [`examples/pillow_demo.py`](examples/pillow_demo.py) | window | Pillow `Image.show()` in a Tk pop-up |
@@ -179,7 +193,7 @@ and stacked notebook-style output on the right:
 python examples/playground.py
 ```
 
-Samples (`README.md` / matplotlib / pyvista / pandas / Folium / ipyleaflet / …) open as
+Samples (`README.md` / matplotlib / pyvista / pandas / Folium / ipyleaflet / ipycanvas / …) open as
 tabs. Running a `.md` or `.markdown` tab renders the file directly in the
 themed output pane; Python code can render the same content with
 `IPython.display.Markdown`. Run the active tab with the **Run** button or
@@ -222,6 +236,8 @@ Built-ins:
   map (preferred in window mode). Percentage sizes keep the notebook HTML.
 * **ipyleaflet** — bundled `jupyter-leaflet` module renders live widget maps;
   map/layer trait changes continue to flow over the tkipw Comm bridge.
+* **ipycanvas** — bundled `ipycanvas` module renders live Canvas widgets;
+  drawing commands and pointer events flow over the Comm bridge.
 * **Pillow** — `Image.show()` → PNG via ``display()`` (inline pane or pop-up)
 * **Altair** — standalone Vega-Lite HTML hosted in a responsive iframe
 * **Bokeh** — `show()` / displayed models → standalone HTML hosted in an iframe
@@ -235,8 +251,8 @@ Built-ins:
 ## 🏗️ Architecture
 
 * **Python** — `comm.create_comm` → `TkwryComm`; official ipywidgets messages sent as JSON (+base64 buffers)
-* **JS** — `@jupyter-widgets/html-manager` + `window.ipc`, with anywidget and
-  jupyter-leaflet bundled in
+* **JS** — `@jupyter-widgets/html-manager` + `window.ipc`, with anywidget,
+  jupyter-leaflet, and ipycanvas bundled in
 * **Bridge** — a stack of active `App`s; the top receives new comm traffic
 
 ---
@@ -257,9 +273,9 @@ avoid WebKitGTK hangs). See [`.github/workflows/ci.yml`](.github/workflows/ci.ym
 ## ⚠️ Known limitations
 
 * **Alpha** — APIs may change
-* **Widget coverage** — standard ipywidgets 8 controls + anywidget + ipyleaflet;
-  no kernel, `update_display`, or general dynamic third-party widget modules
-  (bqplot, ipycanvas, …)
+* **Widget coverage** — standard ipywidgets controls + anywidget + ipyleaflet
+  + ipycanvas; no kernel, `update_display`, or general dynamic third-party
+  widget modules (bqplot, …)
 * **PyVista on macOS** — client-side rendering only (see extensions above)
 * **Platform behavior** — inherits tkwry's platform notes (macOS embedding, import order, Linux source build)
 
