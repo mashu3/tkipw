@@ -117,8 +117,14 @@ html[data-theme="dark"] {
    must stay compact (not stretched to 100% width).
    Exclude ipympl canvas nodes — they carry inline pixel sizes; ``width:100%``
    against a ``fit-content`` figure collapses the plot to a thin strip. */
-#tkipw-widgets .jupyter-widgets:not(.jupyter-button):not(.jupyter-matplotlib):not(.jupyter-matplotlib-canvas-div):not(.jupyter-matplotlib-canvas-container):not(.jupyter-matplotlib-toolbar),
-#tkipw-widgets .widget-box:not(.jupyter-matplotlib):not(.jupyter-matplotlib-figure):not(.jupyter-matplotlib-canvas-container):not(.jupyter-matplotlib-canvas-div):not(.jupyter-matplotlib-toolbar),
+#tkipw-widgets .jupyter-widgets:not(.jupyter-button):not(.jupyter-matplotlib):not(
+  .jupyter-matplotlib-canvas-div
+):not(.jupyter-matplotlib-canvas-container):not(.jupyter-matplotlib-toolbar),
+#tkipw-widgets .widget-box:not(.jupyter-matplotlib):not(
+  .jupyter-matplotlib-figure
+):not(.jupyter-matplotlib-canvas-container):not(
+  .jupyter-matplotlib-canvas-div
+):not(.jupyter-matplotlib-toolbar),
 #tkipw-widgets .widget-vbox:not(.jupyter-matplotlib):not(.jupyter-matplotlib-toolbar),
 #tkipw-widgets .widget-html,
 #tkipw-widgets .widget-html > div {

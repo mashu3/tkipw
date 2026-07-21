@@ -112,8 +112,13 @@ class TestMatplotlib:
         from matplotlib import pyplot as plt
 
         from tkipw.display_mode import set_display_mode
+        from tkipw.extensions.matplotlib import enable_matplotlib
         from tkipw.jupyter import get_extension
 
+        # Leave widget mode if a prior test left ``ipympl`` in ``sys.modules``
+        # (``install_jupyter_support`` would re-enable widget; App display_mode
+        # alone does not override it).
+        enable_matplotlib(mode="inline")
         set_display_mode("inline")
         assert get_extension("matplotlib").mode == "inline"  # type: ignore[union-attr]
 

@@ -368,7 +368,9 @@ def test_ipympl_canvas_renders(app):
         assert float(layout.get("dw") or 0) >= float(layout.get("cw") or 0) - 4, (
             f"ipympl canvas clipped by parent: {layout!r}"
         )
-        assert float(layout.get("cw") or 0) >= 200, f"ipympl canvas too narrow: {layout!r}"
+        assert float(layout.get("cw") or 0) >= 200, (
+            f"ipympl canvas too narrow: {layout!r}"
+        )
         # Figure shell must track the canvas width (not shrink via max-width:100%
         # or stretch-and-clip inside an overflow:hidden Output VBox).
         shell = eval_json(
