@@ -751,7 +751,10 @@ class App:
         try:
             bg_rgba = _hex_to_rgba(shell_bg)
         except ValueError:
-            bg_rgba = (30, 30, 30, 255) if self.theme == "dark" else (255, 255, 255, 255)
+            if self.theme == "dark":
+                bg_rgba = (30, 30, 30, 255)
+            else:
+                bg_rgba = (255, 255, 255, 255)
         self.webview = WebView(
             self._frame,
             url=_shell_document_url(compact=compact, theme=self.theme),
