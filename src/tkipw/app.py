@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import tkinter as tk
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from tkinter import filedialog
 from typing import Any
@@ -27,6 +27,29 @@ _HTML_DIR = Path(__file__).resolve().parent / "html"
 # Live App instances, so process-wide monkey-patches (comm backend, IPython
 # display bridge, logging, excepthook) are torn down when the last one closes.
 _active_apps: list[App] = []
+
+# Optional ``colors`` keys for ``App.set_theme`` → CSS custom properties.
+_THEME_COLOR_VARS: dict[str, str] = {
+    "bg": "--tkipw-bg",
+    "fg": "--tkipw-fg",
+    "muted": "--tkipw-muted",
+    "border": "--tkipw-border",
+    "panel": "--tkipw-panel",
+    "hosted_bg": "--tkipw-hosted-bg",
+    "widget_label": "--tkipw-widget-label",
+    "link": "--tkipw-link",
+    "table_stripe": "--tkipw-table-stripe",
+}
+
+
+def _hex_to_rgba(color: str) -> tuple[int, int, int, int]:
+    """Parse ``#rgb`` / ``#rrggbb`` into an opaque RGBA tuple."""
+    h = color.strip().lstrip("#")
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    if len(h) != 6:
+        raise ValueError(f"expected #rrggbb, got {color!r}")
+    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16), 255
 
 _SHELL = """\
 <!DOCTYPE html>
@@ -661,6 +684,7 @@ class App:
         display_mode: str = "inline",
         compact: bool = False,
         theme: str = "light",
+        colors: Mapping[str, str] | None = None,
     ) -> None:
         install_comm_backend()
 
@@ -668,9 +692,13 @@ class App:
 
         self.display_mode = validate_display_mode(display_mode)
         self.compact = compact
+        self.title = title
         if theme not in ("light", "dark"):
             raise ValueError(f"theme must be 'light' or 'dark', got {theme!r}")
         self.theme = theme
+        self._theme_colors: dict[str, str] | None = (
+            {str(k): str(v) for k, v in colors.items()} if colors else None
+        )
         self._ready = False
         self._ready_callbacks: list[Callable[[], None]] = []
         self._destroyed = False
@@ -709,10 +737,21 @@ class App:
 
         self._frame = tk.Frame(self._container)
         self._frame.pack(fill="both", expand=True)
+        shell_bg = self._shell_bg_hex()
+        try:
+            self._frame.configure(bg=shell_bg, highlightthickness=0, bd=0)
+        except tk.TclError:
+            pass
 
         # Prefer url= over html=: see ``_shell_document_url``.
         # Bake theme into the shell so ready/flush does not need an early
         # eval_js just to flip data-theme (that raced widget delivery).
+        # Native WebView bg matches the shell so a hidden→shown pane does not
+        # flash system white (same idea as tklab explorer/editor WebViews).
+        try:
+            bg_rgba = _hex_to_rgba(shell_bg)
+        except ValueError:
+            bg_rgba = (30, 30, 30, 255) if self.theme == "dark" else (255, 255, 255, 255)
         self.webview = WebView(
             self._frame,
             url=_shell_document_url(compact=compact, theme=self.theme),
@@ -720,6 +759,7 @@ class App:
             on_page_load=self._on_page_load,
             on_navigation=lambda _url: True,
             devtools=devtools,
+            background_color=bg_rgba,
         )
 
         # IPython.display + built-in Jupyter adapters (matplotlib / pyvista / …).
@@ -949,21 +989,67 @@ class App:
         self.display_mode = validate_display_mode(mode)
         self.activate()
 
-    def set_theme(self, theme: str) -> None:
-        """Switch the shell between ``light`` and ``dark`` appearance."""
+    def set_theme(
+        self,
+        theme: str,
+        *,
+        colors: Mapping[str, str] | None = None,
+    ) -> None:
+        """Switch the shell between ``light`` and ``dark`` appearance.
+
+        ``colors`` optionally overrides CSS variables (``bg``, ``fg``, ``muted``,
+        ``border``, ``panel``, ``hosted_bg``, ``widget_label``, ``link``,
+        ``table_stripe``). When omitted, stock light/dark variables are used.
+        """
         if theme not in ("light", "dark"):
             raise ValueError(f"theme must be 'light' or 'dark', got {theme!r}")
         self.theme = theme
+        if colors is not None:
+            self._theme_colors = {str(k): str(v) for k, v in colors.items()} or None
+        else:
+            self._theme_colors = None
+        self._apply_native_shell_bg()
         self._apply_theme()
+
+    def _shell_bg_hex(self) -> str:
+        colors = self._theme_colors
+        if colors and colors.get("bg"):
+            return colors["bg"]
+        return "#1e1e1e" if self.theme == "dark" else "#ffffff"
+
+    def _apply_native_shell_bg(self) -> None:
+        shell_bg = self._shell_bg_hex()
+        try:
+            self._frame.configure(bg=shell_bg)
+        except tk.TclError:
+            pass
+        try:
+            r, g, b, a = _hex_to_rgba(shell_bg)
+            self.webview.set_background_color(r, g, b, a)
+        except Exception:
+            pass
 
     def _apply_theme(self) -> None:
         if self._destroyed or not self._ready:
             return
+        colors = self._theme_colors or {}
+        props: dict[str, str] = {}
+        for key, var in _THEME_COLOR_VARS.items():
+            if key in colors and colors[key]:
+                props[var] = colors[key]
+        clear_vars = [v for v in _THEME_COLOR_VARS.values() if v not in props]
         try:
             self.webview.eval_js(
-                "document.documentElement.setAttribute("
-                f"'data-theme', {json.dumps(self.theme)}"
-                ");"
+                "(function(){"
+                "var root=document.documentElement;"
+                f"root.setAttribute('data-theme',{json.dumps(self.theme)});"
+                f"var set={json.dumps(props)};"
+                "Object.keys(set).forEach(function(k){"
+                "root.style.setProperty(k,set[k]);"
+                "});"
+                f"var clear={json.dumps(clear_vars)};"
+                "clear.forEach(function(k){root.style.removeProperty(k);});"
+                "})();"
             )
         except Exception:
             pass

@@ -164,7 +164,14 @@ def open_display_window(
 
     global _window_serial
     _window_serial += 1
-    win_title = title or f"tkipw · window {_window_serial}"
+    host_title = str(getattr(host, "title", None) or "tkipw")
+    win_title = title or f"{host_title} · window {_window_serial}"
+    host_theme = getattr(host, "theme", "light")
+    if host_theme not in ("light", "dark"):
+        host_theme = "light"
+    host_colors = getattr(host, "_theme_colors", None)
+    if host_colors is not None:
+        host_colors = dict(host_colors)
 
     inferred = infer_window_size(*(sources or ()), *widgets)
     win_w = width if width is not None else inferred[0]
@@ -174,6 +181,18 @@ def open_display_window(
     # Cloak before the idle map so Windows does not flash an empty shell.
     cloaked = _cloak_window(top)
     top.title(win_title)
+    shell_bg = (
+        (host_colors or {}).get("bg")
+        or ("#1e1e1e" if host_theme == "dark" else "#ffffff")
+    )
+    shell_fg = (
+        (host_colors or {}).get("fg")
+        or ("#cccccc" if host_theme == "dark" else "#333333")
+    )
+    try:
+        top.configure(bg=shell_bg)
+    except tk.TclError:
+        pass
     # Design-sized pop-ups (markdown / defaults / tables) need design→physical
     # under DPI awareness. Raster content (Pillow ``Image.size``) is already in
     # bitmap pixels and is shown with ``max-width:100%`` — scaling the window
@@ -221,7 +240,7 @@ def open_display_window(
     win_h = min(max(int(win_h), min_h), max_h)
     top.geometry(f"{win_w}x{win_h}")
 
-    frame = tk.Frame(top)
+    frame = tk.Frame(top, bg=shell_bg, highlightthickness=0, bd=0)
     frame.pack(fill="both", expand=True)
 
     popup = App(
@@ -231,7 +250,22 @@ def open_display_window(
         height=win_h,
         display_mode="inline",
         compact=True,
+        theme=host_theme,
+        colors=host_colors,
     )
+
+    # Match host workbench chrome on the native titlebar (Windows).
+    try:
+        apply_dark = getattr(tkface.win, "apply_dark_mode", None)
+        if callable(apply_dark):
+            apply_dark(
+                top,
+                dark=(host_theme == "dark"),
+                chrome_color=shell_bg,
+                text_color=shell_fg,
+            )
+    except Exception:
+        pass
 
     windows: list[Any] = getattr(host, "_display_windows", None) or []
     host._display_windows = windows
@@ -723,10 +757,11 @@ def _size_from_layout(layout: Any) -> tuple[int, int] | None:
     return None
 
 
-def display_title_for(obj: Any) -> str:
+def display_title_for(obj: Any, *, app_title: str | None = None) -> str:
     """Best-effort window title from a displayed object."""
+    prefix = (app_title or "").strip() or "tkipw"
     name = type(obj).__name__
     module = (type(obj).__module__ or "").split(".", 1)[0]
     if module and module not in {"builtins", "ipywidgets"}:
-        return f"tkipw · {module} · {name}"
-    return f"tkipw · {name}"
+        return f"{prefix} · {module} · {name}"
+    return f"{prefix} · {name}"

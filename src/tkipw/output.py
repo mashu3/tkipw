@@ -178,7 +178,12 @@ def display(*objs: Any) -> None:
         return
 
     if get_display_mode() == "window":
-        title = display_title_for(objs[0]) if len(objs) == 1 else "tkipw · output"
+        app = get_bridge()
+        prefix = str(getattr(app, "title", None) or "tkipw") if app else "tkipw"
+        if len(objs) == 1:
+            title = display_title_for(objs[0], app_title=prefix)
+        else:
+            title = f"{prefix} · output"
         open_display_window(*converted, title=title, sources=objs)
         return
 
