@@ -352,46 +352,72 @@ def test_ipympl_canvas_renders(app):
         assert wait_for_selector(
             app, "#tkipw-widgets .jupyter-matplotlib-canvas-div canvas", steps=200
         ), "ipympl drawing canvas missing"
-        layout = eval_json(
-            app,
-            "(function(){"
-            "var div=document.querySelector("
-            "'.jupyter-matplotlib-canvas-div');"
-            "var cvs=div&&div.querySelector('canvas');"
-            "if(!div||!cvs)return null;"
-            "var dr=div.getBoundingClientRect();"
-            "var cr=cvs.getBoundingClientRect();"
-            "return {dw:dr.width,dh:dr.height,cw:cr.width,ch:cr.height};})()",
-            steps=8,
+
+        # ipympl may remount/layout after the first paint; poll until rects
+        # settle (a single eval_json with steps=8 often returns null on CI).
+        layout: dict | None = None
+
+        def canvas_layout_ok() -> bool:
+            nonlocal layout
+            sample = eval_json(
+                app,
+                "(function(){"
+                "var div=document.querySelector("
+                "'#tkipw-widgets .jupyter-matplotlib-canvas-div');"
+                "var cvs=div&&div.querySelector('canvas');"
+                "if(!div||!cvs)return null;"
+                "var dr=div.getBoundingClientRect();"
+                "var cr=cvs.getBoundingClientRect();"
+                "return {dw:dr.width,dh:dr.height,cw:cr.width,ch:cr.height};})()",
+                steps=8,
+            )
+            if not isinstance(sample, dict):
+                return False
+            dw = float(sample.get("dw") or 0)
+            cw = float(sample.get("cw") or 0)
+            if cw < 200 or dw < cw - 4:
+                return False
+            layout = sample
+            return True
+
+        assert wait_until(app.root, canvas_layout_ok, steps=200), (
+            f"ipympl canvas layout not ready: {layout!r}"
         )
-        assert isinstance(layout, dict)
-        assert float(layout.get("dw") or 0) >= float(layout.get("cw") or 0) - 4, (
-            f"ipympl canvas clipped by parent: {layout!r}"
-        )
-        assert float(layout.get("cw") or 0) >= 200, (
-            f"ipympl canvas too narrow: {layout!r}"
-        )
+
         # Figure shell must track the canvas width (not shrink via max-width:100%
         # or stretch-and-clip inside an overflow:hidden Output VBox).
-        shell = eval_json(
-            app,
-            "(function(){"
-            "var fig=document.querySelector('.jupyter-matplotlib-figure');"
-            "var mpl=document.querySelector('.jupyter-matplotlib');"
-            "var div=document.querySelector('.jupyter-matplotlib-canvas-div');"
-            "if(!fig||!mpl||!div)return null;"
-            "var fr=fig.getBoundingClientRect();"
-            "var mr=mpl.getBoundingClientRect();"
-            "var dr=div.getBoundingClientRect();"
-            "return {fw:fr.width,mw:mr.width,dw:dr.width};})()",
-            steps=8,
-        )
-        assert isinstance(shell, dict)
-        assert float(shell.get("fw") or 0) >= float(shell.get("dw") or 0) - 4, (
-            f"ipympl figure narrower than canvas: {shell!r}"
-        )
-        assert float(shell.get("mw") or 0) >= float(shell.get("dw") or 0) - 4, (
-            f"ipympl widget narrower than canvas: {shell!r}"
+        shell: dict | None = None
+
+        def figure_shell_ok() -> bool:
+            nonlocal shell
+            sample = eval_json(
+                app,
+                "(function(){"
+                "var fig=document.querySelector("
+                "'#tkipw-widgets .jupyter-matplotlib-figure');"
+                "var mpl=document.querySelector("
+                "'#tkipw-widgets .jupyter-matplotlib');"
+                "var div=document.querySelector("
+                "'#tkipw-widgets .jupyter-matplotlib-canvas-div');"
+                "if(!fig||!mpl||!div)return null;"
+                "var fr=fig.getBoundingClientRect();"
+                "var mr=mpl.getBoundingClientRect();"
+                "var dr=div.getBoundingClientRect();"
+                "return {fw:fr.width,mw:mr.width,dw:dr.width};})()",
+                steps=8,
+            )
+            if not isinstance(sample, dict):
+                return False
+            fw = float(sample.get("fw") or 0)
+            mw = float(sample.get("mw") or 0)
+            dw = float(sample.get("dw") or 0)
+            if fw < dw - 4 or mw < dw - 4:
+                return False
+            shell = sample
+            return True
+
+        assert wait_until(app.root, figure_shell_ok, steps=200), (
+            f"ipympl figure shell layout not ready: {shell!r}"
         )
     finally:
         plt.close("all")
