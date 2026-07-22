@@ -181,13 +181,11 @@ def open_display_window(
     # Cloak before the idle map so Windows does not flash an empty shell.
     cloaked = _cloak_window(top)
     top.title(win_title)
-    shell_bg = (
-        (host_colors or {}).get("bg")
-        or ("#1e1e1e" if host_theme == "dark" else "#ffffff")
+    shell_bg = (host_colors or {}).get("bg") or (
+        "#1e1e1e" if host_theme == "dark" else "#ffffff"
     )
-    shell_fg = (
-        (host_colors or {}).get("fg")
-        or ("#cccccc" if host_theme == "dark" else "#333333")
+    shell_fg = (host_colors or {}).get("fg") or (
+        "#cccccc" if host_theme == "dark" else "#333333"
     )
     try:
         top.configure(bg=shell_bg)

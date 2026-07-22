@@ -51,6 +51,7 @@ def _hex_to_rgba(color: str) -> tuple[int, int, int, int]:
         raise ValueError(f"expected #rrggbb, got {color!r}")
     return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16), 255
 
+
 _SHELL = """\
 <!DOCTYPE html>
 <html lang="en" data-theme="__THEME__">
