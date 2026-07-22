@@ -1402,15 +1402,6 @@ class Playground:
         # Embed-safe: do not call tkface.win.dpi(root).
         tkface.win.enable_dpi_awareness()
         self.root = tk.Tk()
-        # Hide the window until the output App has been booted and the pane
-        # re-hidden. That way we can map the pane for WebView create without a
-        # visible open/close flash, and the first Run is not stalled on boot.
-        self._startup_cloaked = False
-        try:
-            self.root.attributes("-alpha", 0.0)
-            self._startup_cloaked = True
-        except tk.TclError:
-            pass
         self.root.title("tkipw · playground")
         self.root.geometry(
             f"{tkface.win.design_to_physical(1100)}x"
@@ -1467,35 +1458,44 @@ class Playground:
         pane_min = tkface.win.design_to_physical(280)
         paned.add(left, minsize=pane_min, stretch="always")
         paned.add(right, minsize=pane_min, stretch="always")
-        # Start with the editor at full width (output pane hidden).
-        paned.paneconfigure(right, hide=True)
 
         left.pack_propagate(False)
         right.pack_propagate(False)
 
-        self._editor_initial_tabs = [
+        initial_tabs = [
             {"title": "README.md", "content": README_SAMPLE.lstrip("\n")},
             *[
                 {"title": f"{name}.py", "content": code.lstrip("\n")}
                 for name, code in SAMPLES.items()
             ],
         ]
-        # One WebView2 at a time on Windows: status → editor → output App.
-        self._editor: WebView | None = None
+        # Parallel create like tklab (no status→editor gap). Output App boots
+        # while both panes are mapped; after_idle hides the result pane.
         self._status = WebView(
             self._status_frame,
             html=_status_html(),
             ipc_handler=self._on_status_ipc,
         )
+        self._editor: WebView | None = WebView(
+            left,
+            html=_editor_html(initial_tabs),
+            ipc_handler=self._on_editor_ipc,
+        )
 
         self._results = StackedOutput()
-        self.app: App | None = None
-        self._app_create_scheduled = False
-        self._editor_create_scheduled = False
         self._layout_sync_enabled = False
+        self.app: App | None = App(
+            parent=right,
+            title="tkipw · playground",
+            display_mode="inline",
+            theme="dark" if self._dark_output_var.get() else "light",
+        )
+        self.app.display(self._results)
+        self.app.when_ready(self._on_app_webview_ready)
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self._install_shortcuts()
+        self.root.after_idle(lambda: self._set_output_visible(False))
         self.root.after(0, self._install_webview_resize_hooks)
 
     def _install_shortcuts(self) -> None:
@@ -1701,9 +1701,6 @@ class Playground:
     def _apply_display_mode(self) -> None:
         mode = self._display_mode_var.get()
         if self.app is None:
-            # Window mode needs the App/bridge even with the pane hidden.
-            if mode == "window":
-                self._maybe_create_output_app(force=True)
             return
         self.app.set_display_mode(mode)
         # Inline needs the result pane; window mode gives the editor full width.
@@ -1728,9 +1725,6 @@ class Playground:
         paned.paneconfigure(output_frame, hide=not visible)
         # Never update_idletasks here: it re-enters WebView2 create on Windows.
         del flush
-        if visible:
-            # First show is when we boot the output App (avoids startup flash).
-            self._maybe_create_output_app()
         if not sync_bounds or not self._layout_sync_enabled:
             return
         if visible:
@@ -1746,91 +1740,12 @@ class Playground:
         else:
             self._schedule_webview_bounds_sync(passes=1)
 
-    def _reveal_after_startup(self) -> None:
-        """Show the main window once startup WebView boot is finished."""
-        if not self._startup_cloaked:
-            return
-        self._startup_cloaked = False
-        try:
-            self.root.attributes("-alpha", 1.0)
-        except tk.TclError:
-            pass
-
     def _on_app_webview_ready(self) -> None:
         self._app_webview_ready = True
         self._layout_sync_enabled = True
         if self._output_visible_var.get():
             self._place_output_sash()
         self._schedule_webview_bounds_sync(passes=2)
-        self._reveal_after_startup()
-
-    def _maybe_create_output_app(self, *, force: bool = False) -> None:
-        """Create the output App once editor/status are up.
-
-        Prefer an early *force* boot (pane mapped under the startup cloak) so
-        the first Run does not wait on WebView creation. A later show of the
-        pane is then only a layout change.
-        """
-        if self.app is not None or self._app_create_scheduled:
-            return
-        if not (self._status_ready and self._editor_ready):
-            return
-        if not force and not self._output_visible_var.get():
-            return
-        self._app_create_scheduled = True
-        # Short gap after editor create; keep this small — it is on the
-        # critical path for first-result latency when not pre-booted.
-        self.root.after(50, lambda: self._create_output_app(force=force))
-
-    def _create_editor_webview(self) -> None:
-        if self._editor is not None:
-            return
-        left = self._editor_frame
-        if left is None:
-            return
-        self._editor = WebView(
-            left,
-            html=_editor_html(self._editor_initial_tabs),
-            ipc_handler=self._on_editor_ipc,
-        )
-
-    def _create_output_app(self, *, force: bool = False) -> None:
-        if self.app is not None:
-            return
-        right = self._output_frame
-        paned = self._paned
-        if right is None or paned is None:
-            return
-        # WebView needs a mapped non-zero parent. Map for boot; re-hide after
-        # ready when the user still wants the pane closed.
-        restore_hidden = not self._output_visible_var.get()
-        if restore_hidden or force or self._output_visible_var.get():
-            paned.paneconfigure(right, hide=False)
-
-        def body() -> None:
-            if self.app is not None:
-                return
-            theme = "dark" if self._dark_output_var.get() else "light"
-            mode = self._display_mode_var.get()
-            if mode not in ("inline", "window"):
-                mode = "inline"
-            self.app = App(
-                parent=right,
-                title="tkipw · playground",
-                display_mode=mode,
-                theme=theme,
-            )
-            self.app.display(self._results)
-
-            def on_ready() -> None:
-                if restore_hidden and not self._output_visible_var.get():
-                    paned.paneconfigure(right, hide=True)
-                self._on_app_webview_ready()
-
-            self.app.when_ready(on_ready)
-
-        # Let Tk settle geometry without update_idletasks (WebView2 re-entrancy).
-        self.root.after(50, body)
 
     def _schedule_webview_bounds_sync(self, *, passes: int = 1) -> None:
         if not self._layout_sync_enabled:
@@ -2079,9 +1994,6 @@ class Playground:
             self._eval_status(
                 f"window.setStatusTheme && window.setStatusTheme({json.dumps(mode)});"
             )
-            if not self._editor_create_scheduled:
-                self._editor_create_scheduled = True
-                self.root.after(150, self._create_editor_webview)
         elif kind == "status_click":
             # Reserved for future status-item menus (language / EOL / …).
             return
@@ -2098,13 +2010,6 @@ class Playground:
             self._set_output_visible(
                 self._output_visible_var.get(), flush=False, sync_bounds=False
             )
-            # When the window is alpha-cloaked, pre-boot the output App now
-            # (pane map is invisible). Otherwise wait until the pane is shown
-            # so we do not flash it — Run still starts without waiting on ready.
-            self._maybe_create_output_app(force=self._startup_cloaked)
-            if self._startup_cloaked:
-                # Safety: never stay invisible forever if App boot hangs.
-                self.root.after(8000, self._reveal_after_startup)
         elif kind == "tab":
             # Invalidate sticky run/save messages when the active tab changes.
             self._status_epoch += 1
@@ -2178,13 +2083,8 @@ class Playground:
             return
         mode = self._display_mode_var.get()
         inline = mode != "window"
-        if inline:
-            if not self._output_visible_var.get():
-                self._set_output_visible(True)
-            else:
-                self._maybe_create_output_app()
-        else:
-            self._maybe_create_output_app(force=True)
+        if inline and not self._output_visible_var.get():
+            self._set_output_visible(True)
         self._busy = True
         self._stop_requested = False
         self._run_status_epoch = self._status_epoch
@@ -2218,21 +2118,10 @@ class Playground:
                 on_error=on_error,
             )
 
-        def wait_app_instance() -> None:
-            """Wait only until App() exists; display traffic queues until ready."""
-            if self._stop_requested:
-                self._finish("stopped")
-                return
-            if self.app is None:
-                self.root.after(20, wait_app_instance)
-                return
-            start_fetch()
-
-        # Do not block on WebView ready — outbound messages queue and flush on
-        # ready. Blocking here made the first Run feel much slower than before.
+        # App is created at startup (tklab-style). Display traffic still queues
+        # until the output WebView is ready.
         if self.app is None:
-            self._set_status("starting output…")
-            wait_app_instance()
+            self._finish("output app not ready")
             return
         start_fetch()
 
