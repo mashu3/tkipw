@@ -155,6 +155,8 @@ class BokehExtension:
 
         try:
             document = file_html(obj, CDN, title="Bokeh plot")
+            # Always avoid body/canvas height:100% — it breaks Bokeh tool hit-testing.
+            document = _window_document(document)
             if inline:
                 _w, height_px = chart_pixels(obj)
                 location = getattr(obj, "toolbar_location", None)
@@ -165,10 +167,11 @@ class BokehExtension:
                         width="100%",
                         height=f"{height_px + pad_h + _DOC_PAD}px",
                         title="Bokeh plot",
+                        # Do not stretch .bk-root to the iframe (pointer events die).
+                        fill=False,
                     )
                 )
 
-            document = _window_document(document)
             win_w, win_h = window_frame_size(obj)
             return widgets.HTML(
                 value=host_html_document(

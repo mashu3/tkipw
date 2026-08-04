@@ -2,6 +2,9 @@
 
 This is the generic “area under the cell”: matplotlib, HTML, widgets, etc. all
 go through the same path — nothing matplotlib-specific in the App shell.
+
+``ipywidgets`` is imported lazily so ``import tkipw.app`` / ``App()`` shell
+create does not pay that cost until ``Output`` / ``display`` / ``to_widget``.
 """
 
 from __future__ import annotations
@@ -15,22 +18,37 @@ from collections.abc import Iterator
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from typing import Any
 
-import ipywidgets as widgets
-import markdown
-from ipywidgets import Widget
-
 # Stack of active output targets (``Output`` widgets). Empty → App default area.
-_output_stack: list[Output] = []
+_output_stack: list[Any] = []
 # Separate stack for stdout/stderr/errors/logging. Unlike ``_output_stack``,
 # this does not capture ordinary ``display()`` calls.
-_stream_output_stack: list[Output] = []
+_stream_output_stack: list[Any] = []
 _logging_installed = False
 _excepthook_installed = False
 _log_handler: DisplayLogHandler | None = None
 _prev_excepthook: Any | None = None
+_OutputClass: type | None = None
 
 _ERROR_STYLE = "padding:8px 10px;border-radius:4px;overflow:auto;white-space:pre-wrap"
 _STDERR_STYLE = _ERROR_STYLE
+
+
+def _widgets() -> Any:
+    from .comm_backend import _ensure_widget_open_patch
+
+    _ensure_widget_open_patch()
+    import ipywidgets as widgets
+
+    return widgets
+
+
+def _is_widget(obj: Any) -> bool:
+    # Cheap reject before importing ipywidgets (render_html of plain objects).
+    if not hasattr(obj, "model_id"):
+        return False
+    from ipywidgets import Widget
+
+    return isinstance(obj, Widget)
 
 
 def error_html(text: str, *, kind: str = "error") -> str:
@@ -49,7 +67,7 @@ def error_html(text: str, *, kind: str = "error") -> str:
 
 def render_html(obj: Any) -> str:
     """Serialize ``obj`` to an HTML fragment (no Widget / Comm — thread-safe)."""
-    if isinstance(obj, Widget):
+    if _is_widget(obj):
         value = getattr(obj, "value", None)
         if isinstance(value, str):
             return value
@@ -105,6 +123,8 @@ def render_html(obj: Any) -> str:
 
 def _render_markdown(source: str) -> str:
     """Convert Jupyter ``text/markdown`` into a themed HTML fragment."""
+    import markdown
+
     body = markdown.markdown(
         source,
         extensions=["extra", "sane_lists"],
@@ -113,7 +133,7 @@ def _render_markdown(source: str) -> str:
     return f'<article class="tkipw-markdown">{body}</article>'
 
 
-def to_widget(obj: Any) -> Widget:
+def to_widget(obj: Any) -> Any:
     """Apply Jupyter extensions, then convert an object to a Widget.
 
     This is the single display gateway used by ``tkipw.display``,
@@ -121,8 +141,9 @@ def to_widget(obj: Any) -> Widget:
     """
     from .jupyter import transform_display_object
 
+    widgets = _widgets()
     obj = transform_display_object(obj)
-    if isinstance(obj, Widget):
+    if _is_widget(obj):
         return obj
     return widgets.HTML(value=render_html(obj))
 
@@ -133,14 +154,15 @@ def _escape(text: str) -> str:
 
 def display_error(text: str, *, kind: str = "error") -> None:
     """Show an error / stderr message in the active output area."""
+    widgets = _widgets()
     display_stream(widgets.HTML(value=error_html(text, kind=kind)))
 
 
-def _current_output() -> Output | None:
+def _current_output() -> Any | None:
     return _output_stack[-1] if _output_stack else None
 
 
-def _current_stream_output() -> Output | None:
+def _current_stream_output() -> Any | None:
     return _stream_output_stack[-1] if _stream_output_stack else None
 
 
@@ -213,57 +235,74 @@ def clear_output(wait: bool = False) -> None:
     app._clear_output(wait=wait)
 
 
-class Output(widgets.VBox):
-    """Notebook-like output region (capture target for ``display`` / ``plt.show``)."""
+def _ensure_output_class() -> type:
+    """Build ``Output`` on first use (subclasses ``ipywidgets.VBox``)."""
+    global _OutputClass
+    if _OutputClass is not None:
+        return _OutputClass
 
-    def __init__(self, **kwargs: Any) -> None:
-        kwargs.setdefault("layout", widgets.Layout(width="100%"))
-        super().__init__(children=(), **kwargs)
-        self._wait_clear = False
+    widgets = _widgets()
 
-    def clear_output(self, wait: bool = False) -> None:
-        if wait:
-            self._wait_clear = True
-            return
-        self._wait_clear = False
-        self.children = ()
+    class Output(widgets.VBox):
+        """Notebook-like output region (capture target for ``display`` / ``plt.show``)."""
 
-    def _append(self, items: list[Widget]) -> None:
-        if self._wait_clear:
-            self.children = tuple(items)
+        def __init__(self, **kwargs: Any) -> None:
+            kwargs.setdefault("layout", widgets.Layout(width="100%"))
+            super().__init__(children=(), **kwargs)
             self._wait_clear = False
-        else:
-            self.children = tuple(self.children) + tuple(items)
 
-    def __enter__(self) -> Output:
-        _output_stack.append(self)
-        return self
+        def clear_output(self, wait: bool = False) -> None:
+            if wait:
+                self._wait_clear = True
+                return
+            self._wait_clear = False
+            self.children = ()
 
-    def __exit__(self, exc_type, exc, tb) -> bool:
-        if _output_stack and _output_stack[-1] is self:
-            _output_stack.pop()
-        if exc is not None:
-            self._append(
-                [
-                    widgets.HTML(
-                        value=error_html(
-                            "".join(traceback.format_exception(exc_type, exc, tb))
+        def _append(self, items: list[Any]) -> None:
+            if self._wait_clear:
+                self.children = tuple(items)
+                self._wait_clear = False
+            else:
+                self.children = tuple(self.children) + tuple(items)
+
+        def __enter__(self) -> Any:
+            _output_stack.append(self)
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            if _output_stack and _output_stack[-1] is self:
+                _output_stack.pop()
+            if exc is not None:
+                self._append(
+                    [
+                        widgets.HTML(
+                            value=error_html(
+                                "".join(traceback.format_exception(exc_type, exc, tb))
+                            )
                         )
-                    )
-                ]
-            )
-        return False
+                    ]
+                )
+            return False
+
+    _OutputClass = Output
+    return Output
+
+
+def __getattr__(name: str) -> Any:
+    if name == "Output":
+        return _ensure_output_class()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 @contextmanager
-def output_context(out: Output) -> Iterator[Output]:
+def output_context(out: Any) -> Iterator[Any]:
     """Explicit context manager alias for ``with Output():``."""
     with out:
         yield out
 
 
 @contextmanager
-def stream_context(out: Output) -> Iterator[Output]:
+def stream_context(out: Any) -> Iterator[Any]:
     """Capture only stdout/stderr/errors/logging, leaving ``display()`` alone."""
     _stream_output_stack.append(out)
     try:

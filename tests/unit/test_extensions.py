@@ -376,6 +376,14 @@ class TestBokeh:
         inline = BokehExtension().transform(plot)
         assert "width:100%" in inline.value
         assert plot.sizing_mode != "stretch_width"  # restored after transform
+        # Inner doc must not force canvas height:100% (breaks tool hit-testing).
+        from tkipw.html_host import get_html_host
+
+        url = inline.value.split('src="')[1].split('"')[0]
+        key = url.rsplit("/", 1)[-1].removesuffix(".html")
+        body = get_html_host()._documents[key][0].decode("utf-8")
+        assert "height:auto!important" in body.replace(" ", "")
+        assert "height:100%!important" not in body.replace(" ", "")
         set_bridge(None)
 
     def test_preimported_show_routes_to_output(self):

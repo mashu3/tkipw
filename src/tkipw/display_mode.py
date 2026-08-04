@@ -117,20 +117,26 @@ def sync_matplotlib(mode: DisplayMode) -> None:
 
     Does not override an explicit ``widget`` (ipympl) backend — App
     ``display_mode`` still controls inline pane vs pop-up routing.
+    Does not import matplotlib if the user has not imported it yet.
     """
+    import sys
+
+    if not any(
+        key == "matplotlib" or key.startswith("matplotlib.") for key in sys.modules
+    ):
+        return
     try:
         from .extensions.matplotlib import MatplotlibExtension
-        from .jupyter import enable_extension, get_extension
+        from .jupyter import _enable_builtin, get_extension
     except Exception:
         return
 
+    _enable_builtin("matplotlib")
     existing = get_extension("matplotlib")
     if isinstance(existing, MatplotlibExtension):
         if existing.mode == "widget":
-            enable_extension(existing.name)
             return
         existing.set_mode(mode)
-        enable_extension(existing.name)
 
 
 def open_display_window(

@@ -62,6 +62,31 @@ def test_host_html_document_inline_forces_full_width():
         set_bridge(None)
 
 
+def test_host_html_document_inline_can_skip_fill():
+    from support import FakeApp
+
+    from tkipw.comm_backend import set_bridge
+    from tkipw.html_host import get_html_host
+
+    set_bridge(FakeApp(display_mode="inline"))
+    try:
+        fragment = host_html_document(
+            "<!doctype html><html><head></head><body><div class='bk-root'></div></body></html>",
+            width="100%",
+            height="400px",
+            fill=False,
+        )
+        assert "width:100%" in fragment
+        assert "height:400px" in fragment
+        url = fragment.split('src="')[1].split('"')[0]
+        key = url.rsplit("/", 1)[-1].removesuffix(".html")
+        body_bytes, _content_type = get_html_host()._documents[key]
+        body = body_bytes.decode("utf-8")
+        assert "height:100%!important" not in body.replace(" ", "")
+    finally:
+        set_bridge(None)
+
+
 def test_host_html_document_inline_keeps_height_when_width_already_fluid():
     from support import FakeApp
 

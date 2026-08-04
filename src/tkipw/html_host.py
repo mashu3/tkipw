@@ -173,6 +173,7 @@ def host_html_document(
     width: str = "100%",
     height: str = "500px",
     title: str = "Rich output",
+    fill: bool | None = None,
 ) -> str:
     """Host a complete HTML document and return an iframe fragment.
 
@@ -181,6 +182,11 @@ def host_html_document(
     author's aspect ratio (``width:100%; aspect-ratio:W/H``). Callers that
     already pass ``width="100%"`` keep their declared height. Window / compact
     pop-ups keep the caller's size unchanged.
+
+    *fill* controls whether the inner document is stretched to the iframe
+    (``height:100%`` on children). Default is on for inline mode. Pass
+    ``False`` for renderers (e.g. Bokeh) whose event hit-testing breaks when
+    the canvas is forced to fill the iframe.
     """
     try:
         from .comm_backend import get_bridge
@@ -190,9 +196,13 @@ def host_html_document(
     except Exception:
         inline = False
 
+    if fill is None:
+        fill = inline
+
     style = f"width:{width};height:{height};border:0;display:block"
     if inline:
-        document = _inline_fill_document(document)
+        if fill:
+            document = _inline_fill_document(document)
         w_px = _parse_px(width)
         h_px = _parse_px(height)
         if w_px is not None and h_px is not None and w_px > 0 and h_px > 0:

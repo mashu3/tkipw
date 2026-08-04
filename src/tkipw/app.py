@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import base64
 import json
+import os
+import sys
+import threading
+import time
 import tkinter as tk
 from collections.abc import Callable, Mapping
 from pathlib import Path
@@ -20,9 +24,48 @@ from .comm_backend import (
     reset_comms,
     unregister_comm,
 )
-from .manager import prepare_widgets
 
 _HTML_DIR = Path(__file__).resolve().parent / "html"
+
+_PROFILE_T0: float | None = None
+_PROFILE_LAST: float | None = None
+
+# Cached instrumented runtime.js + css. Cold reads of the multi-MB bundle on
+# the Tk thread can stall the host UI — prefer :func:`prefetch_shell_assets` /
+# :func:`warm_shell_assets` off-thread, then hit this cache from App create.
+_shell_assets_lock = threading.Lock()
+_shell_assets_js: bytes | None = None
+_shell_assets_css: bytes | None = None
+_shell_assets_ready = threading.Event()
+_shell_assets_loading = False
+
+
+def _profile_enabled() -> bool:
+    return bool(
+        os.environ.get("TKLAB_STARTUP_PROFILE")
+        or os.environ.get("TKIPW_STARTUP_PROFILE")
+    )
+
+
+def _profile_mark(label: str) -> None:
+    """Step timing when ``TKLAB_STARTUP_PROFILE`` or ``TKIPW_STARTUP_PROFILE``."""
+    global _PROFILE_T0, _PROFILE_LAST
+    if not _profile_enabled():
+        return
+    now = time.perf_counter()
+    if _PROFILE_T0 is None:
+        _PROFILE_T0 = now
+        _PROFILE_LAST = now
+        print(f"[tkipw-startup]    0.0ms  {label}", file=sys.stderr, flush=True)
+        return
+    total_ms = (now - _PROFILE_T0) * 1000.0
+    step_ms = (now - (_PROFILE_LAST or _PROFILE_T0)) * 1000.0
+    _PROFILE_LAST = now
+    print(
+        f"[tkipw-startup] {total_ms:7.1f}ms  step={step_ms:7.1f}ms  {label}",
+        file=sys.stderr,
+        flush=True,
+    )
 
 # Live App instances, so process-wide monkey-patches (comm backend, IPython
 # display bridge, logging, excepthook) are torn down when the last one closes.
@@ -59,16 +102,36 @@ _SHELL = """\
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>tkipw</title>
-  <link rel="stylesheet" href="__RUNTIME_CSS_URL__" />
+  __BOOT_PROFILE_HEAD__
+  <link rel="stylesheet" href="__RUNTIME_CSS_URL__" __CSS_ONLOAD__ />
   <style>__CSS__</style>
 </head>
 <body>
   <div id="tkipw-root">
     <div id="tkipw-status">Starting widget runtime…</div>
   </div>
-  <script src="__RUNTIME_JS_URL__"></script>
+  <script src="__RUNTIME_JS_URL__" __JS_ONLOAD__></script>
 </body>
 </html>
+"""
+
+_BOOT_PROFILE_HEAD = """\
+  <script>
+  (function () {
+    var t0 = performance.now();
+    window.__TKIPW_BOOT_T0 = t0;
+    window.__tkipwBootMark = function (label) {
+      var ms = performance.now() - t0;
+      var msg = { channel: "profile", label: String(label), ms: ms };
+      try {
+        if (window.ipc && typeof window.ipc.postMessage === "function") {
+          window.ipc.postMessage(JSON.stringify(msg));
+        }
+      } catch (e) {}
+    };
+    window.__tkipwBootMark("shell_head");
+  })();
+  </script>
 """
 
 # App chrome CSS (theme + layout). Widget-manager CSS ships as runtime.css.
@@ -622,13 +685,154 @@ def _load_shell_html(
     body = '<body class="tkipw-compact">' if compact else "<body>"
     if theme not in ("light", "dark"):
         theme = "light"
+    profile = _profile_enabled()
     return (
         _SHELL.replace("__THEME__", theme)
         .replace("__CSS__", _SHELL_CSS)
         .replace("__RUNTIME_JS_URL__", runtime_js_url)
         .replace("__RUNTIME_CSS_URL__", runtime_css_url)
+        .replace(
+            "__BOOT_PROFILE_HEAD__",
+            _BOOT_PROFILE_HEAD if profile else "",
+        )
+        .replace(
+            "__CSS_ONLOAD__",
+            'onload="window.__tkipwBootMark&&window.__tkipwBootMark(\'runtime.css_onload\')"'
+            if profile
+            else "",
+        )
+        .replace(
+            "__JS_ONLOAD__",
+            'onload="window.__tkipwBootMark&&window.__tkipwBootMark(\'runtime.js_onload\')"'
+            if profile
+            else "",
+        )
         .replace("<body>", body, 1)
     )
+
+
+def _instrument_runtime_js(runtime_js: bytes) -> bytes:
+    """Inject boot marks into the mounted runtime bundle (profile builds only)."""
+    if not _profile_enabled():
+        return runtime_js
+    begin = (
+        b"try{window.__tkipwBootMark&&window.__tkipwBootMark('runtime_eval_begin')}"
+        b"catch(e){}\n"
+    )
+    # Built bundle ends Hft with a comma-expr: ``...deliver=fn...,Y0({channel:"ready"})``.
+    # ``try`` cannot sit in a comma-expr — replace the leading comma with ``;``.
+    ready = b',Y0({channel:"ready"})'
+    ready_marked = (
+        b";try{window.__tkipwBootMark&&window.__tkipwBootMark('boot_before_ready')}"
+        b"catch(e){}"
+        b'Y0({channel:"ready"});'
+        b"try{window.__tkipwBootMark&&window.__tkipwBootMark('boot_after_ready_post')}"
+        b"catch(e){}"
+    )
+    if ready in runtime_js:
+        runtime_js = runtime_js.replace(ready, ready_marked, 1)
+    elif b'Y0({channel:"ready"})' in runtime_js:
+        runtime_js = runtime_js.replace(
+            b'Y0({channel:"ready"})',
+            b"try{window.__tkipwBootMark&&window.__tkipwBootMark('boot_before_ready')}"
+            b"catch(e){}"
+            b'Y0({channel:"ready"});'
+            b"try{window.__tkipwBootMark&&window.__tkipwBootMark('boot_after_ready_post')}"
+            b"catch(e){}",
+            1,
+        )
+    else:
+        runtime_js = (
+            runtime_js
+            + b"\ntry{window.__tkipwBootMark&&window.__tkipwBootMark("
+            b"'boot_ready_marker_missing')}catch(e){}\n"
+        )
+    return begin + runtime_js
+
+
+def _load_shell_asset_bytes() -> tuple[bytes, bytes]:
+    """Read and instrument runtime.js / runtime.css from disk."""
+    runtime = _HTML_DIR / "runtime.js"
+    if not runtime.exists():
+        raise FileNotFoundError(
+            f"Missing {runtime}. Run: cd js && npm install && npm run build"
+        )
+    runtime_js = _instrument_runtime_js(runtime.read_bytes())
+    css_path = _HTML_DIR / "runtime.css"
+    runtime_css = css_path.read_bytes() if css_path.exists() else b"/* empty */\n"
+    return runtime_js, runtime_css
+
+
+def warm_shell_assets() -> tuple[bytes, bytes]:
+    """Load runtime.js/css into the process cache on the calling thread."""
+    return _get_shell_asset_bytes()
+
+
+def prefetch_shell_assets() -> None:
+    """Warm runtime.js/css on a background thread (idempotent)."""
+    if _shell_assets_js is not None or _shell_assets_loading:
+        return
+
+    def worker() -> None:
+        try:
+            warm_shell_assets()
+        except Exception:
+            import traceback
+
+            traceback.print_exc()
+            _shell_assets_ready.set()
+
+    threading.Thread(
+        target=worker,
+        name="tkipw-prefetch-shell-assets",
+        daemon=True,
+    ).start()
+
+
+def shell_assets_ready() -> bool:
+    """True when shell assets are cached."""
+    return _shell_assets_js is not None
+
+
+def wait_shell_assets(*, timeout: float = 120.0) -> bool:
+    """Block until shell assets are cached. Starts prefetch if needed."""
+    if _shell_assets_js is not None:
+        return True
+    prefetch_shell_assets()
+    if not _shell_assets_ready.wait(timeout=timeout):
+        return False
+    return _shell_assets_js is not None
+
+
+def _get_shell_asset_bytes() -> tuple[bytes, bytes]:
+    """Return cached shell assets, loading on this thread if needed."""
+    global _shell_assets_js, _shell_assets_css, _shell_assets_loading
+    with _shell_assets_lock:
+        if _shell_assets_js is not None and _shell_assets_css is not None:
+            return _shell_assets_js, _shell_assets_css
+        if _shell_assets_loading:
+            load_here = False
+        else:
+            _shell_assets_loading = True
+            load_here = True
+    if not load_here:
+        # Another thread is reading — wait for cache (avoid a duplicate load).
+        if not _shell_assets_ready.wait(timeout=120.0):
+            raise TimeoutError("timed out waiting for tkipw shell assets")
+        with _shell_assets_lock:
+            if _shell_assets_js is None or _shell_assets_css is None:
+                raise RuntimeError("tkipw shell asset prefetch failed")
+            return _shell_assets_js, _shell_assets_css
+    try:
+        js, css = _load_shell_asset_bytes()
+        with _shell_assets_lock:
+            _shell_assets_js = js
+            _shell_assets_css = css
+        return js, css
+    finally:
+        _shell_assets_ready.set()
+        with _shell_assets_lock:
+            _shell_assets_loading = False
 
 
 def _shell_document_url(*, compact: bool = False, theme: str = "light") -> str:
@@ -641,10 +845,13 @@ def _shell_document_url(*, compact: bool = False, theme: str = "light") -> str:
     """
     from .html_host import get_html_host
 
+    _profile_mark("shell:get_html_host…")
     host = get_html_host()
-    runtime_js = (_HTML_DIR / "runtime.js").read_bytes()
-    css_path = _HTML_DIR / "runtime.css"
-    runtime_css = css_path.read_bytes() if css_path.exists() else b"/* empty */\n"
+    _profile_mark("shell:get_html_host done")
+    _profile_mark("shell:read runtime.js…")
+    runtime_js, runtime_css = _get_shell_asset_bytes()
+    _profile_mark(f"shell:read runtime.js done ({len(runtime_js)} bytes)")
+    _profile_mark(f"shell:read runtime.css done ({len(runtime_css)} bytes)")
     js_url = host.mount_bytes(
         runtime_js,
         content_type="application/javascript; charset=utf-8",
@@ -655,7 +862,8 @@ def _shell_document_url(*, compact: bool = False, theme: str = "light") -> str:
         content_type="text/css; charset=utf-8",
         suffix=".css",
     )
-    return host.mount(
+    _profile_mark("shell:mount assets done")
+    url = host.mount(
         _load_shell_html(
             compact=compact,
             theme=theme,
@@ -663,6 +871,8 @@ def _shell_document_url(*, compact: bool = False, theme: str = "light") -> str:
             runtime_css_url=css_url,
         )
     )
+    _profile_mark("shell:mount html done")
+    return url
 
 
 class App:
@@ -687,7 +897,9 @@ class App:
         theme: str = "light",
         colors: Mapping[str, str] | None = None,
     ) -> None:
+        _profile_mark("App.__init__ begin")
         install_comm_backend()
+        _profile_mark("install_comm_backend")
 
         from .display_mode import validate_display_mode
 
@@ -738,6 +950,7 @@ class App:
 
         self._frame = tk.Frame(self._container)
         self._frame.pack(fill="both", expand=True)
+        _profile_mark("frame.pack")
         shell_bg = self._shell_bg_hex()
         try:
             self._frame.configure(bg=shell_bg, highlightthickness=0, bd=0)
@@ -756,35 +969,68 @@ class App:
                 bg_rgba = (30, 30, 30, 255)
             else:
                 bg_rgba = (255, 255, 255, 255)
+        # Explicit size: tkwry can create + Navigate while the host is still
+        # hidden (tklab output pane starts with paned ``hide=True``). Without
+        # this, initial load waits until the pane is first shown → cold Run.
+        _profile_mark("WebView()… (incl. shell URL + may pump native create)")
         self.webview = WebView(
             self._frame,
             url=_shell_document_url(compact=compact, theme=self.theme),
+            width=640,
+            height=480,
             ipc_handler=self._on_ipc,
             on_page_load=self._on_page_load,
             on_navigation=lambda _url: True,
             devtools=devtools,
             background_color=bg_rgba,
         )
+        _profile_mark("WebView() done")
+        if _profile_enabled():
+            when_ready = getattr(self.webview, "when_ready", None)
+            if callable(when_ready):
+                when_ready(lambda: _profile_mark("webview_native_ready"))
 
-        # IPython.display + built-in Jupyter adapters (matplotlib / pyvista / …).
-        from .jupyter import install_jupyter_support
-
-        install_jupyter_support()
-        from .display_mode import sync_matplotlib
-
-        sync_matplotlib(self.display_mode)
+        # Matplotlib / folium / bokeh / … adapters are expensive to import+setup
+        # (multi-second on Windows). Defer via ``ensure_jupyter_support()`` —
+        # tklab calls it after splash / before first Run; plain App users should
+        # call it before relying on library display hooks.
+        self._jupyter_installed = False
 
         # Notebook-like error / logging visibility in the output area
         from .output import install_display_logging, install_excepthook
 
         install_display_logging()
         install_excepthook()
+        _profile_mark("App.__init__ end")
 
         if self._owns_root:
             # Tear down native WebView before Tk walks the widget tree.
             self.root.protocol("WM_DELETE_WINDOW", self.destroy)
 
+    def ensure_jupyter_support(self) -> None:
+        """Install IPython display bridge and optional library adapters.
+
+        Safe to call repeatedly. Intentionally not done in ``__init__`` — on
+        Windows ``install_jupyter_support()`` can take several seconds and would
+        freeze the host UI (e.g. Explorer toggle) if run during App create.
+        """
+        if self._jupyter_installed or self._destroyed:
+            return
+        self._jupyter_installed = True
+        _profile_mark("ensure_jupyter_support…")
+        from .jupyter import install_jupyter_support
+
+        install_jupyter_support()
+        _profile_mark("install_jupyter_support done")
+        from .display_mode import sync_matplotlib
+
+        sync_matplotlib(self.display_mode)
+        _profile_mark("ensure_jupyter_support end")
+
     def _on_page_load(self, event: PageLoadEvent, url: str | None) -> None:
+        if _profile_enabled():
+            label = getattr(event, "name", None) or str(event)
+            _profile_mark(f"page_load {label} url={(url or '')[:60]!r}")
         if event == PageLoadEvent.Finished and not self._ready:
             # Fallback if the runtime failed to post ready: probe and report
             self.webview.eval_js(
@@ -852,7 +1098,16 @@ class App:
         except json.JSONDecodeError:
             return
         channel = msg.get("channel")
+        if channel == "profile":
+            label = msg.get("label") or "?"
+            try:
+                js_ms = float(msg.get("ms") or 0.0)
+            except (TypeError, ValueError):
+                js_ms = 0.0
+            _profile_mark(f"js:{label} (perf={js_ms:.1f}ms)")
+            return
         if channel == "ready":
+            _profile_mark("runtime channel=ready")
             self._ready = True
             # A synchronous eval_js before the first flush is required: on
             # WKWebView/WebView2 the initial queued display batch is otherwise
@@ -861,6 +1116,7 @@ class App:
             self._apply_theme()
             self._schedule_flush()
             self._fire_ready_callbacks()
+            _profile_mark("runtime ready callbacks done")
             return
         if channel == "comm":
             self._handle_comm_from_js(msg)
@@ -1066,6 +1322,8 @@ class App:
         # Route this widget tree's comm_open traffic to this App, even when
         # another App was activated more recently.
         self.activate()
+        from .manager import prepare_widgets
+
         model_ids = prepare_widgets(widgets, bridge=self)
         self.send_to_js({"channel": "display", "model_ids": model_ids})
 

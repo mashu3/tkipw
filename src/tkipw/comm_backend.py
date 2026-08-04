@@ -249,19 +249,32 @@ def _open_widget_with_deps(widget: Any, *args: Any, **kwargs: Any) -> Any:
 
 
 def install_comm_backend() -> None:
-    """Replace ``comm.create_comm`` so new widgets use :class:`TkwryComm`."""
-    global _installed, _original_create_comm, _original_widget_open
+    """Replace ``comm.create_comm`` so new widgets use :class:`TkwryComm`.
+
+    The ``ipywidgets.Widget.open`` dependency-order patch is deferred until
+    :func:`_ensure_widget_open_patch` (first widget open / display) so
+    ``import tkipw`` / ``App()`` shell create does not import ipywidgets.
+    """
+    global _installed, _original_create_comm
     with _install_lock:
         if _installed:
             return
         _original_create_comm = comm.create_comm
         comm.create_comm = create_tkwry_comm  # type: ignore[assignment]
+        _installed = True
 
+
+def _ensure_widget_open_patch() -> None:
+    """Patch ``Widget.open`` once ipywidgets is needed."""
+    global _original_widget_open
+    install_comm_backend()
+    with _install_lock:
+        if _original_widget_open is not None:
+            return
         from ipywidgets import Widget
 
         _original_widget_open = Widget.open
         Widget.open = _open_widget_with_deps  # type: ignore[method-assign]
-        _installed = True
 
 
 def uninstall_comm_backend() -> None:
@@ -285,7 +298,7 @@ def ensure_widget_comm(widget: Any) -> None:
     """If a widget still has a DummyComm, reopen it on the tkwry backend."""
     from comm import DummyComm
 
-    install_comm_backend()
+    _ensure_widget_open_patch()
     current = getattr(widget, "comm", None)
     if isinstance(current, TkwryComm):
         register_comm(current)

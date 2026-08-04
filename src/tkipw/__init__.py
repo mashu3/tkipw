@@ -1,27 +1,17 @@
-"""tkipw — ipywidgets / anywidget runtime on tkwry."""
+"""tkipw — ipywidgets / anywidget runtime on tkwry.
+
+Heavy deps (``ipywidgets``, markdown renderers, App/WebView) load on first
+attribute access. ``install_comm_backend()`` still runs at import so widgets
+created after ``import tkipw`` use TkwryComm instead of DummyComm.
+"""
 
 from __future__ import annotations
 
-from .app import App, Runtime
+from typing import Any
+
 from .comm_backend import (
     install_comm_backend,
     uninstall_comm_backend,
-)
-from .display_mode import get_display_mode, set_display_mode
-from .jupyter import (
-    JupyterExtension,
-    enable_extension,
-    get_extension,
-    install_jupyter_support,
-    register_extension,
-    uninstall_jupyter_support,
-)
-from .output import (
-    Output,
-    clear_output,
-    display,
-    display_error,
-    to_widget,
 )
 
 # Install as early as possible so widgets created after ``import tkipw``
@@ -52,41 +42,45 @@ __all__ = [
 ]
 __version__ = "0.0.2"
 
+_LAZY_ATTRS: dict[str, tuple[str, str]] = {
+    "App": (".app", "App"),
+    "Runtime": (".app", "Runtime"),
+    "Output": (".output", "Output"),
+    "clear_output": (".output", "clear_output"),
+    "display": (".output", "display"),
+    "display_error": (".output", "display_error"),
+    "to_widget": (".output", "to_widget"),
+    "get_display_mode": (".display_mode", "get_display_mode"),
+    "set_display_mode": (".display_mode", "set_display_mode"),
+    "JupyterExtension": (".jupyter", "JupyterExtension"),
+    "register_extension": (".jupyter", "register_extension"),
+    "enable_extension": (".jupyter", "enable_extension"),
+    "get_extension": (".jupyter", "get_extension"),
+    "install_jupyter_support": (".jupyter", "install_jupyter_support"),
+    "uninstall_jupyter_support": (".jupyter", "uninstall_jupyter_support"),
+    "enable_matplotlib": (".extensions.matplotlib", "enable_matplotlib"),
+    "matplotlib_inline": (".extensions.matplotlib", "matplotlib_inline"),
+    "matplotlib_widget": (".extensions.matplotlib", "matplotlib_widget"),
+    "matplotlib_window": (".extensions.matplotlib", "matplotlib_window"),
+    "enable_pyvista": (".extensions.pyvista", "enable_pyvista"),
+    "enable_pillow": (".extensions.pillow", "enable_pillow"),
+    "enable_altair": (".extensions.altair", "enable_altair"),
+    "enable_bokeh": (".extensions.bokeh", "enable_bokeh"),
+}
 
-def __getattr__(name: str):
-    if name in (
-        "enable_matplotlib",
-        "matplotlib_inline",
-        "matplotlib_widget",
-        "matplotlib_window",
-    ):
-        from .extensions.matplotlib import (
-            enable_matplotlib,
-            matplotlib_inline,
-            matplotlib_widget,
-            matplotlib_window,
-        )
 
-        return {
-            "enable_matplotlib": enable_matplotlib,
-            "matplotlib_inline": matplotlib_inline,
-            "matplotlib_widget": matplotlib_widget,
-            "matplotlib_window": matplotlib_window,
-        }[name]
-    if name == "enable_pyvista":
-        from .extensions.pyvista import enable_pyvista
+def __getattr__(name: str) -> Any:
+    target = _LAZY_ATTRS.get(name)
+    if target is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module_name, attr = target
+    from importlib import import_module
 
-        return enable_pyvista
-    if name == "enable_pillow":
-        from .extensions.pillow import enable_pillow
+    mod = import_module(module_name, __name__)
+    value = getattr(mod, attr)
+    globals()[name] = value
+    return value
 
-        return enable_pillow
-    if name == "enable_altair":
-        from .extensions.altair import enable_altair
 
-        return enable_altair
-    if name == "enable_bokeh":
-        from .extensions.bokeh import enable_bokeh
-
-        return enable_bokeh
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+def __dir__() -> list[str]:
+    return sorted({*globals(), *_LAZY_ATTRS})

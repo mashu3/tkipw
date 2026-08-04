@@ -24,6 +24,7 @@ class JupyterExtension(Protocol):
 
 _extensions: OrderedDict[str, JupyterExtension] = OrderedDict()
 _enabled: set[str] = set()
+_enabling: set[str] = set()
 _bridge_installed = False
 _builtins_loaded = False
 _original_ipython_display: Any | None = None
@@ -33,6 +34,7 @@ _pyvista_enabling = False
 _pyvista_import_depth = 0
 _ipympl_enabling = False
 _ipympl_import_depth = 0
+_lazy_import_depths: dict[str, int] = {}
 
 
 class JupyterEventLoop:
@@ -100,11 +102,15 @@ def register_extension(
 
 def enable_extension(name: str) -> None:
     """Enable a registered extension once."""
-    if name in _enabled:
+    if name in _enabled or name in _enabling:
         return
     extension = _extensions[name]
-    extension.setup()
-    _enabled.add(name)
+    _enabling.add(name)
+    try:
+        extension.setup()
+        _enabled.add(name)
+    finally:
+        _enabling.discard(name)
 
 
 def get_extension(name: str) -> JupyterExtension | None:
@@ -114,6 +120,7 @@ def get_extension(name: str) -> JupyterExtension | None:
 
 def transform_display_object(obj: Any) -> Any:
     """Apply enabled display transforms in registration order."""
+    _ensure_extension_for_object(obj)
     current = obj
     for name, extension in tuple(_extensions.items()):
         if name in _enabled:
@@ -122,26 +129,16 @@ def transform_display_object(obj: Any) -> Any:
 
 
 def install_jupyter_support() -> None:
-    """Install IPython display routing and available built-in adapters."""
+    """Install IPython display routing; load library adapters on demand.
+
+    Does **not** import matplotlib / folium / bokeh / pyvista / … up front.
+    Those adapters register+enable when the matching package is imported or
+    when ``transform_display_object`` sees an object from that package.
+    """
     _install_ipython_display_bridge()
-    _load_builtin_extensions()
-    # Defer PyVista / ipympl side effects until those packages are imported.
     _install_lazy_import_hook()
-    # Re-enable registered extensions after a previous teardown.
-    for name in tuple(_extensions):
-        if name == "pyvista":
-            # PyVista pulls in VTK/trame/aiohttp at setup time. Loading that
-            # stack during App startup races WebView2 creation on Windows.
-            continue
-        try:
-            enable_extension(name)
-        except ImportError:
-            # Built-in adapters target optional dependencies. An unavailable
-            # library must not prevent the remaining display bridge from
-            # being installed.
-            continue
-    # If ipympl was imported before the App, switch Matplotlib now.
-    _try_enable_ipympl()
+    # Packages already imported before the App (common in tests / scripts).
+    _enable_extensions_for_imported_packages()
 
 
 def _install_ipython_display_bridge() -> None:
@@ -179,6 +176,7 @@ def uninstall_jupyter_support() -> None:
             except Exception:
                 pass
     _enabled.clear()
+    _enabling.clear()
     _uninstall_lazy_import_hook()
 
     if not _bridge_installed:
@@ -196,59 +194,131 @@ def uninstall_jupyter_support() -> None:
 
 
 def _load_builtin_extensions() -> None:
+    """Deprecated no-op — builtins register on demand via ``_register_builtin``."""
     global _builtins_loaded
-    if _builtins_loaded:
-        return
     _builtins_loaded = True
 
-    try:
-        from .display_mode import get_display_mode
-        from .extensions.matplotlib import MatplotlibExtension
 
-        register_extension(MatplotlibExtension(mode=get_display_mode()), enable=False)
+def _register_builtin(name: str) -> bool:
+    """Import and register one built-in adapter module (does not enable)."""
+    if name in _extensions:
+        return True
+    try:
+        if name == "matplotlib":
+            from .display_mode import get_display_mode
+            from .extensions.matplotlib import MatplotlibExtension
+
+            register_extension(
+                MatplotlibExtension(mode=get_display_mode()), enable=False
+            )
+        elif name == "pyvista":
+            from .extensions.pyvista import PyVistaExtension
+
+            register_extension(PyVistaExtension(), enable=False)
+        elif name == "pillow":
+            from .extensions.pillow import PillowExtension
+
+            register_extension(PillowExtension(), enable=False)
+        elif name == "folium":
+            from .extensions.folium import FoliumExtension
+
+            register_extension(FoliumExtension(), enable=False)
+        elif name == "altair":
+            from .extensions.altair import AltairExtension
+
+            register_extension(AltairExtension(), enable=False)
+        elif name == "bokeh":
+            from .extensions.bokeh import BokehExtension
+
+            register_extension(BokehExtension(), enable=False)
+        else:
+            return False
+    except ImportError:
+        return False
+    return name in _extensions
+
+
+def _enable_builtin(name: str) -> None:
+    """Register+enable one adapter; ignore missing optional dependencies."""
+    if not _register_builtin(name):
+        return
+    try:
+        enable_extension(name)
     except ImportError:
         pass
 
-    try:
-        from .extensions.pyvista import PyVistaExtension
 
-        register_extension(PyVistaExtension(), enable=False)
-    except ImportError:
-        pass
+def _ensure_extension_for_object(obj: Any) -> None:
+    """Enable the adapter that matches ``type(obj).__module__`` when needed."""
+    module = type(obj).__module__ or ""
+    if module.startswith("folium"):
+        _enable_builtin("folium")
+    elif module.startswith("matplotlib") or module == "pylab":
+        _enable_builtin("matplotlib")
+    elif module.startswith("bokeh"):
+        _enable_builtin("bokeh")
+    elif module.startswith("altair"):
+        _enable_builtin("altair")
+    elif module.startswith(("PIL", "pillow")):
+        _enable_builtin("pillow")
+    elif module.startswith("pyvista"):
+        _enable_builtin("pyvista")
 
-    try:
-        from .extensions.pillow import PillowExtension
 
-        register_extension(PillowExtension(), enable=False)
-    except ImportError:
-        pass
+def _package_key_for_import(name: str, *, level: int = 0) -> str | None:
+    """Map an absolute third-party import name to a built-in adapter key.
 
-    try:
-        from .extensions.folium import FoliumExtension
+    Relative imports (``level != 0``) and ``tkipw.*`` imports are ignored so
+    loading ``tkipw.extensions.folium`` does not look like ``import folium``.
+    """
+    if level != 0:
+        return None
+    if name == "tkipw" or name.startswith("tkipw."):
+        return None
+    if name == "matplotlib" or name.startswith("matplotlib."):
+        return "matplotlib"
+    if name == "folium" or name.startswith("folium."):
+        return "folium"
+    if name == "bokeh" or name.startswith("bokeh."):
+        return "bokeh"
+    if name == "altair" or name.startswith("altair."):
+        return "altair"
+    if name in {"PIL", "Pillow"} or name.startswith("PIL."):
+        return "pillow"
+    if name == "pyvista" or name.startswith("pyvista."):
+        return "pyvista"
+    if name == "ipympl" or name.startswith("ipympl."):
+        return "ipympl"
+    return None
 
-        register_extension(FoliumExtension(), enable=False)
-    except ImportError:
-        pass
 
-    try:
-        from .extensions.altair import AltairExtension
+def _enable_extensions_for_imported_packages() -> None:
+    """Enable adapters for third-party libs already present in ``sys.modules``."""
+    import sys
 
-        register_extension(AltairExtension(), enable=False)
-    except ImportError:
-        pass
-
-    try:
-        from .extensions.bokeh import BokehExtension
-
-        register_extension(BokehExtension(), enable=False)
-    except ImportError:
-        pass
+    modules = sys.modules
+    if any(k == "matplotlib" or k.startswith("matplotlib.") for k in modules):
+        _enable_builtin("matplotlib")
+    if any(k == "folium" or k.startswith("folium.") for k in modules):
+        _enable_builtin("folium")
+    if any(k == "bokeh" or k.startswith("bokeh.") for k in modules):
+        _enable_builtin("bokeh")
+    if any(k == "altair" or k.startswith("altair.") for k in modules):
+        _enable_builtin("altair")
+    if any(k == "PIL" or k.startswith("PIL.") for k in modules):
+        _enable_builtin("pillow")
+    if any(k == "pyvista" or k.startswith("pyvista.") for k in modules):
+        _enable_builtin("pyvista")
+    _try_enable_ipympl()
+    _try_enable_pyvista()
 
 
 def _try_enable_pyvista() -> None:
     """Enable the PyVista adapter once the library is imported."""
     global _pyvista_enabling
-    if _pyvista_enabling or "pyvista" not in _extensions or "pyvista" in _enabled:
+    if _pyvista_enabling or "pyvista" in _enabled:
+        return
+    if not _register_builtin("pyvista"):
         return
     import sys
 
@@ -272,13 +342,15 @@ def _try_enable_ipympl() -> None:
     Plain ``import matplotlib`` keeps the App's inline PNG / window TkAgg path.
     """
     global _ipympl_enabling
-    if _ipympl_enabling or "matplotlib" not in _extensions:
+    if _ipympl_enabling:
         return
     import sys
 
     if "ipympl" not in sys.modules and not any(
         name.startswith("ipympl.") for name in sys.modules
     ):
+        return
+    if not _register_builtin("matplotlib"):
         return
 
     from .extensions.matplotlib import MatplotlibExtension
@@ -303,7 +375,7 @@ def _try_enable_ipympl() -> None:
 
 
 def _install_lazy_import_hook() -> None:
-    """Defer PyVista / ipympl setup until those packages are imported."""
+    """Enable matching adapters when optional libraries are imported."""
     global _lazy_import_hook_installed, _original_builtins_import
     if _lazy_import_hook_installed:
         return
@@ -316,25 +388,25 @@ def _install_lazy_import_hook() -> None:
         fromlist: tuple[str, ...] = (),
         level: int = 0,
     ) -> Any:
-        global _pyvista_import_depth, _ipympl_import_depth
         assert _original_builtins_import is not None
-        track_pyvista = name == "pyvista" or name.startswith("pyvista.")
-        track_ipympl = name == "ipympl" or name.startswith("ipympl.")
-        if track_pyvista:
-            _pyvista_import_depth += 1
-        if track_ipympl:
-            _ipympl_import_depth += 1
+        key = _package_key_for_import(name, level=level)
+        if key is not None:
+            _lazy_import_depths[key] = _lazy_import_depths.get(key, 0) + 1
         try:
             module = _original_builtins_import(name, globals, locals, fromlist, level)
         finally:
-            if track_pyvista:
-                _pyvista_import_depth -= 1
-                if _pyvista_import_depth == 0:
-                    _try_enable_pyvista()
-            if track_ipympl:
-                _ipympl_import_depth -= 1
-                if _ipympl_import_depth == 0:
-                    _try_enable_ipympl()
+            if key is not None:
+                depth = _lazy_import_depths.get(key, 1) - 1
+                if depth <= 0:
+                    _lazy_import_depths.pop(key, None)
+                    if key == "ipympl":
+                        _try_enable_ipympl()
+                    elif key == "pyvista":
+                        _try_enable_pyvista()
+                    else:
+                        _enable_builtin(key)
+                else:
+                    _lazy_import_depths[key] = depth
         return module
 
     builtins.__import__ = _hooked_import  # type: ignore[assignment]
@@ -348,3 +420,4 @@ def _uninstall_lazy_import_hook() -> None:
     builtins.__import__ = _original_builtins_import
     _original_builtins_import = None
     _lazy_import_hook_installed = False
+    _lazy_import_depths.clear()
