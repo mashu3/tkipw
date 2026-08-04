@@ -253,6 +253,8 @@ def _ensure_extension_for_object(obj: Any) -> None:
     module = type(obj).__module__ or ""
     if module.startswith("folium"):
         _enable_builtin("folium")
+    elif module.startswith("ipympl"):
+        _try_enable_ipympl()
     elif module.startswith("matplotlib") or module == "pylab":
         _enable_builtin("matplotlib")
     elif module.startswith("bokeh"):
@@ -403,6 +405,14 @@ def _install_lazy_import_hook() -> None:
                         _try_enable_ipympl()
                     elif key == "pyvista":
                         _try_enable_pyvista()
+                    elif (
+                        key == "matplotlib"
+                        and _lazy_import_depths.get("ipympl", 0) > 0
+                    ):
+                        # Nested under ``import ipympl`` — do not enable the
+                        # inline Agg adapter first; ``_try_enable_ipympl``
+                        # switches straight to widget mode when ipympl finishes.
+                        pass
                     else:
                         _enable_builtin(key)
                 else:

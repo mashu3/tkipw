@@ -244,7 +244,7 @@ def _ensure_output_class() -> type:
     widgets = _widgets()
 
     class Output(widgets.VBox):
-        """Notebook-like output region (capture target for ``display`` / ``plt.show``)."""
+        """Notebook-like output region (``display`` / ``plt.show`` capture target)."""
 
         def __init__(self, **kwargs: Any) -> None:
             kwargs.setdefault("layout", widgets.Layout(width="100%"))

@@ -83,6 +83,12 @@ class MatplotlibExtension:
                     "matplotlib widget mode requires ipympl "
                     '(pip install "tkipw[demo]" or ipympl)'
                 ) from exc
+            # Patch Widget.open before any ipympl Canvas is constructed —
+            # deferred from ``install_comm_backend`` so App shell create
+            # stays free of ipywidgets, but figures need the dep-order fix.
+            from ..comm_backend import _ensure_widget_open_patch
+
+            _ensure_widget_open_patch()
             matplotlib.use(_IPYMPL_BACKEND, force=True)
             # ipympl's FigureManager.show → IPython.display(canvas); the tkipw
             # display bridge routes that into the active App. Do not patch

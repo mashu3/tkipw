@@ -71,7 +71,10 @@ def test_host_html_document_inline_can_skip_fill():
     set_bridge(FakeApp(display_mode="inline"))
     try:
         fragment = host_html_document(
-            "<!doctype html><html><head></head><body><div class='bk-root'></div></body></html>",
+            (
+                "<!doctype html><html><head></head>"
+                "<body><div class='bk-root'></div></body></html>"
+            ),
             width="100%",
             height="400px",
             fill=False,

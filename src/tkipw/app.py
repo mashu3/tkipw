@@ -719,7 +719,8 @@ def _instrument_runtime_js(runtime_js: bytes) -> bytes:
         b"try{window.__tkipwBootMark&&window.__tkipwBootMark('runtime_eval_begin')}"
         b"catch(e){}\n"
     )
-    # Built bundle ends Hft with a comma-expr: ``...deliver=fn...,Y0({channel:"ready"})``.
+    # Built bundle ends Hft with a comma-expr:
+    # ``...deliver=fn...,Y0({channel:"ready"})``.
     # ``try`` cannot sit in a comma-expr — replace the leading comma with ``;``.
     ready = b',Y0({channel:"ready"})'
     ready_marked = (

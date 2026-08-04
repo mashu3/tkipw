@@ -341,6 +341,8 @@ def test_ipympl_canvas_renders(app):
     from tkipw.extensions.matplotlib import enable_matplotlib
     from tkipw.output import display
 
+    # Explicit widget mode (import hook also switches; keep this for CI).
+    enable_matplotlib(mode="widget")
     try:
         fig, ax = plt.subplots(figsize=(4.0, 3.0), dpi=80)
         ax.plot([1, 2, 3], [1, 4, 9], color="#2563eb")
@@ -433,6 +435,7 @@ def test_ipympl_clear_output_removes_dom(app):
     from tkipw.extensions.matplotlib import enable_matplotlib
     from tkipw.output import Output, clear_output, display
 
+    enable_matplotlib(mode="widget")
     results = Output()
     app.display(results)
     try:
