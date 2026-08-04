@@ -406,8 +406,7 @@ def _install_lazy_import_hook() -> None:
                     elif key == "pyvista":
                         _try_enable_pyvista()
                     elif (
-                        key == "matplotlib"
-                        and _lazy_import_depths.get("ipympl", 0) > 0
+                        key == "matplotlib" and _lazy_import_depths.get("ipympl", 0) > 0
                     ):
                         # Nested under ``import ipympl`` — do not enable the
                         # inline Agg adapter first; ``_try_enable_ipympl``

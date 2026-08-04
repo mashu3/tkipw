@@ -67,6 +67,7 @@ def _profile_mark(label: str) -> None:
         flush=True,
     )
 
+
 # Live App instances, so process-wide monkey-patches (comm backend, IPython
 # display bridge, logging, excepthook) are torn down when the last one closes.
 _active_apps: list[App] = []
@@ -697,13 +698,13 @@ def _load_shell_html(
         )
         .replace(
             "__CSS_ONLOAD__",
-            'onload="window.__tkipwBootMark&&window.__tkipwBootMark(\'runtime.css_onload\')"'
+            "onload=\"window.__tkipwBootMark&&window.__tkipwBootMark('runtime.css_onload')\""
             if profile
             else "",
         )
         .replace(
             "__JS_ONLOAD__",
-            'onload="window.__tkipwBootMark&&window.__tkipwBootMark(\'runtime.js_onload\')"'
+            "onload=\"window.__tkipwBootMark&&window.__tkipwBootMark('runtime.js_onload')\""
             if profile
             else "",
         )
@@ -744,8 +745,7 @@ def _instrument_runtime_js(runtime_js: bytes) -> bytes:
         )
     else:
         runtime_js = (
-            runtime_js
-            + b"\ntry{window.__tkipwBootMark&&window.__tkipwBootMark("
+            runtime_js + b"\ntry{window.__tkipwBootMark&&window.__tkipwBootMark("
             b"'boot_ready_marker_missing')}catch(e){}\n"
         )
     return begin + runtime_js
