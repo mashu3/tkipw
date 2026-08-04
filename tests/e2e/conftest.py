@@ -16,6 +16,13 @@ _APP_SCOPE = "module" if os.environ.get("TKIPW_E2E_SHARED_APP") == "1" else "fun
 
 def _reset_app_state(instance: object) -> None:
     """Clear output / theme / matplotlib so the next test sees a clean shell."""
+    # Re-assert as active bridge (autouse unit fixtures may have cleared it).
+    activate = getattr(instance, "activate", None)
+    if callable(activate):
+        try:
+            activate()
+        except Exception:
+            pass
     try:
         from tkipw.output import clear_output
 

@@ -61,8 +61,15 @@ def _create_tk_root():
 
 @pytest.fixture(autouse=True)
 def reset_comm_backend():
-    """Reset comm_backend globals after each test to avoid cross-test leakage."""
+    """Reset comm_backend globals after each test to avoid cross-test leakage.
+
+    Skip when macOS e2e shares one App per module (``TKIPW_E2E_SHARED_APP=1``):
+    clearing the bridge / uninstalling the backend would leave the live App
+    unable to serve ``display()`` on the next test.
+    """
     yield
+    if os.environ.get("TKIPW_E2E_SHARED_APP") == "1":
+        return
     from tkipw.comm_backend import (
         install_comm_backend,
         reset_comms,
