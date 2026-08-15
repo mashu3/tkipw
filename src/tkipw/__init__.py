@@ -21,6 +21,7 @@ install_comm_backend()
 __all__ = [
     "App",
     "Runtime",
+    "WidgetFrame",
     "Output",
     "clear_output",
     "display",
@@ -45,6 +46,7 @@ __version__ = "0.0.3"
 _LAZY_ATTRS: dict[str, tuple[str, str]] = {
     "App": (".app", "App"),
     "Runtime": (".app", "Runtime"),
+    "WidgetFrame": (".app", "WidgetFrame"),
     "Output": (".output", "Output"),
     "clear_output": (".output", "clear_output"),
     "display": (".output", "display"),

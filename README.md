@@ -128,9 +128,24 @@ app.display(slider)
 app.run()
 ```
 
+Embed in an existing Tk layout with `WidgetFrame` (a `tk.Frame` that you pack
+yourself):
+
+```python
+import tkinter as tk
+import ipywidgets as widgets
+from tkipw import WidgetFrame
+
+root = tk.Tk()
+view = WidgetFrame(root)
+view.pack(fill="both", expand=True)
+view.display(widgets.IntSlider())
+root.mainloop()
+```
+
 `import ipywidgets` / `import anywidget` work unchanged.
 
-* `app.display(...)` — mount widgets in **this** App's WebView
+* `app.display(...)` / `view.display(...)` — mount widgets in **this** host's WebView
 * `display` / `clear_output` / `Output` — notebook-style output under the cell
 * `App(display_mode="inline"|"window")` — output pane vs one Tk pop-up per `display()`
   (window mode hides the host root so only the pop-ups are visible)

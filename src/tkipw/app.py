@@ -68,9 +68,9 @@ def _profile_mark(label: str) -> None:
     )
 
 
-# Live App instances, so process-wide monkey-patches (comm backend, IPython
+# Live widget hosts, so process-wide monkey-patches (comm backend, IPython
 # display bridge, logging, excepthook) are torn down when the last one closes.
-_active_apps: list[App] = []
+_active_apps: list[WidgetFrame] = []
 
 # Optional ``colors`` keys for ``App.set_theme`` → CSS custom properties.
 _THEME_COLOR_VARS: dict[str, str] = {
@@ -915,13 +915,13 @@ def _ask_save_as(root: tk.Misc, filename: str) -> str:
 
 
 class _AppActivation:
-    """Token from :meth:`App.activate`. Restores the previous App on exit."""
+    """Token from :meth:`WidgetFrame.activate`. Restores the previous host on exit."""
 
-    def __init__(self, app: App, previous: Any | None) -> None:
+    def __init__(self, app: WidgetFrame, previous: Any | None) -> None:
         self._app = app
         self._previous = previous
 
-    def __enter__(self) -> App:
+    def __enter__(self) -> WidgetFrame:
         return self._app
 
     def __exit__(self, *exc: object) -> None:
@@ -940,29 +940,36 @@ class _AppActivation:
         return None
 
 
-class App:
-    """Host ipywidgets / anywidget UIs inside a tkwry WebView.
+class WidgetFrame(tk.Frame):
+    """Tk ``Frame`` that hosts ipywidgets / anywidget in a tkwry WebView.
+
+    Does **not** pack itself and does **not** create a ``Tk`` root — lay it out
+    like any other widget::
+
+        root = tk.Tk()
+        view = WidgetFrame(root)
+        view.pack(fill="both", expand=True)
+        view.display(widgets.IntSlider())
+        root.mainloop()
 
     ``display_mode="inline"`` sends ``display()`` / library ``show()`` output
-    into this App. ``display_mode="window"`` opens a new Tk pop-up for each
+    into this host. ``display_mode="window"`` opens a new Tk pop-up for each
     output (Matplotlib uses native TkAgg windows).
     """
 
     def __init__(
         self,
+        master: tk.Misc,
         *,
         title: str = "tkipw",
-        width: int = 900,
-        height: int = 700,
-        root: tk.Misc | None = None,
-        parent: tk.Misc | None = None,
         devtools: bool = False,
         display_mode: str = "inline",
         compact: bool = False,
         theme: str = "light",
         colors: Mapping[str, str] | None = None,
+        _boot_webview: bool = True,
     ) -> None:
-        _profile_mark("App.__init__ begin")
+        _profile_mark("WidgetFrame.__init__ begin")
         install_comm_backend()
         _profile_mark("install_comm_backend")
 
@@ -989,42 +996,39 @@ class App:
         self._flush_after_id: str | None = None
         self._cell_output: Any = None
         self._cell_output_mounted = False
+        self._owns_root = False
         push_bridge(self)
         _active_apps.append(self)
 
-        # ``parent`` = embed in an existing Frame (e.g. PanedWindow pane).
-        # ``root`` kept for backwards compatibility (Tk or container).
-        container = parent if parent is not None else root
-        self._owns_root = container is None
-        if container is None:
-            import tkface
-
-            # Embed-safe DPI: awareness only — do not call tkface.win.dpi(root).
-            tkface.win.enable_dpi_awareness()
-            self.root = tk.Tk()
-            self._container: tk.Misc = self.root
-            self.root.title(title)
-            self.root.geometry(
-                f"{tkface.win.design_to_physical(width)}x"
-                f"{tkface.win.design_to_physical(height)}"
-            )
-            # Withdraw before packing the WebView so Windows does not flash an
-            # empty host window (content lives in Toplevel pop-ups).
-            if self.display_mode == "window":
-                self.root.withdraw()
-        else:
-            self._container = container
-            self.root = container.winfo_toplevel()
-
-        self._frame = tk.Frame(self._container)
-        self._frame.pack(fill="both", expand=True)
-        _profile_mark("frame.pack")
+        super().__init__(master, highlightthickness=0, bd=0)
+        self.root = master.winfo_toplevel()
         shell_bg = self._shell_bg_hex()
         try:
-            self._frame.configure(bg=shell_bg, highlightthickness=0, bd=0)
+            self.configure(bg=shell_bg)
         except tk.TclError:
             pass
+        self.webview: WebView | None = None
+        self._devtools = devtools
 
+        # Matplotlib / folium / bokeh / … adapters are expensive to import+setup
+        # (multi-second on Windows). Defer via ``ensure_jupyter_support()`` —
+        # tklab calls it after splash / before first Run; plain App users should
+        # call it before relying on library display hooks.
+        self._jupyter_installed = False
+
+        # Notebook-like error / logging visibility in the output area
+        from .output import install_display_logging, install_excepthook
+
+        install_display_logging()
+        install_excepthook()
+        if _boot_webview:
+            self._boot_webview()
+        _profile_mark("WidgetFrame.__init__ end")
+
+    def _boot_webview(self) -> None:
+        if self.webview is not None:
+            return
+        shell_bg = self._shell_bg_hex()
         # Prefer url= over html=: see ``_shell_document_url``.
         # Bake theme into the shell so ready/flush does not need an early
         # eval_js just to flip data-theme (that raced widget delivery).
@@ -1043,9 +1047,9 @@ class App:
         # Stay on the loopback host; off-list http(s) opens in the system
         # browser (do not pass a custom on_navigation — it replaces this).
         _profile_mark("WebView()… (incl. shell URL + may pump native create)")
-        shell_url = _shell_document_url(compact=compact, theme=self.theme)
+        shell_url = _shell_document_url(compact=self.compact, theme=self.theme)
         self.webview = WebView(
-            self._frame,
+            self,
             url=shell_url,
             width=640,
             height=480,
@@ -1055,7 +1059,7 @@ class App:
             open_external=True,
             on_download=self._on_native_download,
             on_creation_failed=self._on_webview_create_failed,
-            devtools=devtools,
+            devtools=self._devtools,
             background_color=bg_rgba,
         )
         _profile_mark("WebView() done")
@@ -1063,23 +1067,6 @@ class App:
             when_ready = getattr(self.webview, "when_ready", None)
             if callable(when_ready):
                 when_ready(lambda: _profile_mark("webview_native_ready"))
-
-        # Matplotlib / folium / bokeh / … adapters are expensive to import+setup
-        # (multi-second on Windows). Defer via ``ensure_jupyter_support()`` —
-        # tklab calls it after splash / before first Run; plain App users should
-        # call it before relying on library display hooks.
-        self._jupyter_installed = False
-
-        # Notebook-like error / logging visibility in the output area
-        from .output import install_display_logging, install_excepthook
-
-        install_display_logging()
-        install_excepthook()
-        _profile_mark("App.__init__ end")
-
-        if self._owns_root:
-            # Tear down native WebView before Tk walks the widget tree.
-            self.root.protocol("WM_DELETE_WINDOW", self.destroy)
 
     def ensure_jupyter_support(self) -> None:
         """Install IPython display bridge and optional library adapters.
@@ -1107,6 +1094,8 @@ class App:
             _profile_mark(f"page_load {label} url={(url or '')[:60]!r}")
         if event == PageLoadEvent.Finished and not self._ready:
             # Fallback if the runtime failed to post ready: probe and report
+            if self.webview is None:
+                return
             self.webview.eval_js(
                 "if(!window.__tkipwDeliver){"
                 "window.ipc && window.ipc.postMessage(JSON.stringify({"
@@ -1161,6 +1150,10 @@ class App:
             "})(" + json.dumps(messages, ensure_ascii=False, default=str) + ");"
         )
         try:
+            if self.webview is None:
+                self._outbound.extend(messages)
+                self._schedule_flush()
+                return
             self.webview.eval_js(js)
         except Exception:
             self._outbound.extend(messages)
@@ -1351,13 +1344,13 @@ class App:
             unregister_comm(comm_id)
 
     def activate(self) -> _AppActivation:
-        """Make this App the active bridge so new widget comms route here.
+        """Make this host the active bridge so new widget comms route here.
 
-        Calling this without ``with`` is unchanged: this App stays active until
-        another App is activated. As a context manager, the previous App is
+        Calling this without ``with`` is unchanged: this host stays active until
+        another host is activated. As a context manager, the previous host is
         restored on exit::
 
-            with app.activate():
+            with view.activate():
                 slider = widgets.IntSlider()
         """
         from .comm_backend import get_bridge
@@ -1407,17 +1400,18 @@ class App:
     def _apply_native_shell_bg(self) -> None:
         shell_bg = self._shell_bg_hex()
         try:
-            self._frame.configure(bg=shell_bg)
+            self.configure(bg=shell_bg)
         except tk.TclError:
             pass
         try:
-            r, g, b, a = _hex_to_rgba(shell_bg)
-            self.webview.set_background_color(r, g, b, a)
+            if self.webview is not None:
+                r, g, b, a = _hex_to_rgba(shell_bg)
+                self.webview.set_background_color(r, g, b, a)
         except Exception:
             pass
 
     def _apply_theme(self) -> None:
-        if self._destroyed or not self._ready:
+        if self._destroyed or not self._ready or self.webview is None:
             return
         colors = self._theme_colors or {}
         props: dict[str, str] = {}
@@ -1508,7 +1502,9 @@ class App:
         self._cell_output_mounted = False
 
         try:
-            self.webview.destroy()
+            webview = self.webview
+            if webview is not None:
+                webview.destroy()
         except Exception:
             pass
         if self._owns_root:
@@ -1516,10 +1512,79 @@ class App:
                 self.root.destroy()
             except tk.TclError:
                 pass
+        else:
+            try:
+                super().destroy()
+            except tk.TclError:
+                pass
 
-        # Last App out restores the process-wide patches it relied on.
+        # Last host out restores the process-wide patches it relied on.
         if not _active_apps:
             _teardown_global_patches()
+
+
+class App(WidgetFrame):
+    """Windowed widget host: a :class:`WidgetFrame` that can own a ``Tk`` root.
+
+    ``App()`` creates a window and packs the frame. ``App(parent=frame)``
+    still auto-packs into *frame* (Playground / pop-ups). For a Frame you lay
+    out yourself, use :class:`WidgetFrame`.
+    """
+
+    def __init__(
+        self,
+        *,
+        title: str = "tkipw",
+        width: int = 900,
+        height: int = 700,
+        root: tk.Misc | None = None,
+        parent: tk.Misc | None = None,
+        devtools: bool = False,
+        display_mode: str = "inline",
+        compact: bool = False,
+        theme: str = "light",
+        colors: Mapping[str, str] | None = None,
+    ) -> None:
+        _profile_mark("App.__init__ begin")
+        from .display_mode import validate_display_mode
+
+        display_mode = validate_display_mode(display_mode)
+        container = parent if parent is not None else root
+        owns_root = container is None
+        if container is None:
+            import tkface
+
+            # Embed-safe DPI: awareness only — do not call tkface.win.dpi(root).
+            tkface.win.enable_dpi_awareness()
+            container = tk.Tk()
+            container.title(title)
+            container.geometry(
+                f"{tkface.win.design_to_physical(width)}x"
+                f"{tkface.win.design_to_physical(height)}"
+            )
+            # Withdraw before packing the WebView so Windows does not flash an
+            # empty host window (content lives in Toplevel pop-ups).
+            if display_mode == "window":
+                container.withdraw()
+
+        super().__init__(
+            container,
+            title=title,
+            devtools=devtools,
+            display_mode=display_mode,
+            compact=compact,
+            theme=theme,
+            colors=colors,
+            _boot_webview=False,
+        )
+        self._owns_root = owns_root
+        self.pack(fill="both", expand=True)
+        _profile_mark("frame.pack")
+        self._boot_webview()
+        if owns_root:
+            # Tear down native WebView before Tk walks the widget tree.
+            self.root.protocol("WM_DELETE_WINDOW", self.destroy)
+        _profile_mark("App.__init__ end")
 
 
 def _teardown_global_patches() -> None:
