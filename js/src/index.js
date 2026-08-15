@@ -128,6 +128,192 @@ const anywidgetMod =
     ? anywidgetFactory(base)
     : anywidgetFactory;
 
+function lookupBundled(moduleName) {
+  switch (moduleName) {
+    case "@jupyter-widgets/base":
+    case "jupyter-js-widgets":
+      return base;
+    case "@jupyter-widgets/controls":
+      return controls;
+    case "anywidget":
+      return anywidgetMod;
+    case "jupyter-leaflet":
+      return jupyterLeaflet;
+    case "ipycanvas":
+      return ipycanvas;
+    case "bqplot":
+      return bqplot;
+    case "bqscales":
+      return bqscales;
+    case "jupyter-matplotlib":
+      return jupyterMatplotlib;
+    default:
+      return undefined;
+  }
+}
+
+const amdLoads = new Map();
+let amdShimInstalled = false;
+let lastAmdModule;
+let lastAmdName;
+
+function resolveAmdDep(id) {
+  const bundled = lookupBundled(id);
+  if (bundled !== undefined) {
+    return bundled;
+  }
+  if (Object.prototype.hasOwnProperty.call(window, id) && window[id]) {
+    return window[id];
+  }
+  return undefined;
+}
+
+function installAmdShim() {
+  if (amdShimInstalled) {
+    return;
+  }
+  amdShimInstalled = true;
+  const requireFn = function amdRequire(id) {
+    if (Array.isArray(id)) {
+      throw new Error("async AMD require() is not supported");
+    }
+    const resolved = resolveAmdDep(id);
+    if (resolved === undefined) {
+      throw new Error(`AMD missing dependency: ${id}`);
+    }
+    return resolved;
+  };
+  if (typeof window.require !== "function") {
+    window.require = requireFn;
+  }
+  window.define = function amdDefine(name, deps, factory) {
+    if (typeof name !== "string") {
+      factory = deps;
+      deps = name;
+      name = null;
+    }
+    if (!Array.isArray(deps)) {
+      factory = deps;
+      deps = [];
+    }
+    const specials = {};
+    const args = deps.map((dep) => {
+      if (dep === "exports") {
+        specials.exports = specials.exports || {};
+        return specials.exports;
+      }
+      if (dep === "module") {
+        specials.module = specials.module || { exports: {} };
+        return specials.module;
+      }
+      if (dep === "require") {
+        return requireFn;
+      }
+      const resolved = resolveAmdDep(dep);
+      if (resolved === undefined) {
+        throw new Error(`AMD missing dependency: ${dep}`);
+      }
+      return resolved;
+    });
+    let result;
+    if (typeof factory === "function") {
+      result = factory.apply(null, args);
+    } else {
+      result = factory;
+    }
+    if (result === undefined) {
+      result =
+        (specials.module && specials.module.exports) || specials.exports;
+    }
+    lastAmdModule = result;
+    lastAmdName = name;
+    if (name) {
+      window[name] = result;
+    }
+  };
+  window.define.amd = {};
+}
+
+function injectWidgetStyles(registry) {
+  if (!registry) {
+    return;
+  }
+  for (const spec of Object.values(registry)) {
+    const url = spec && spec.style;
+    if (!url) {
+      continue;
+    }
+    const attr = "data-tkipw-widget-style";
+    const already = Array.prototype.some.call(
+      document.querySelectorAll(`link[${attr}]`),
+      (el) => el.getAttribute(attr) === url
+    );
+    if (already) {
+      continue;
+    }
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = url;
+    link.setAttribute(attr, url);
+    document.head.appendChild(link);
+  }
+}
+
+function loadAmdScript(moduleName, spec) {
+  return new Promise((resolve, reject) => {
+    installAmdShim();
+    if (spec.publicPath) {
+      window.__webpack_public_path__ = spec.publicPath;
+    }
+    lastAmdModule = undefined;
+    lastAmdName = undefined;
+    const script = document.createElement("script");
+    script.src = spec.url;
+    script.async = true;
+    script.onload = () => {
+      const mod = lastAmdModule;
+      if (mod && typeof mod === "object") {
+        resolve(mod);
+        return;
+      }
+      const named = lastAmdName && window[lastAmdName];
+      if (named) {
+        resolve(named);
+        return;
+      }
+      if (window[moduleName]) {
+        resolve(window[moduleName]);
+        return;
+      }
+      reject(
+        new Error(`AMD module ${moduleName} did not call define(): ${spec.url}`)
+      );
+    };
+    script.onerror = () => {
+      reject(new Error(`Failed to load widget module ${moduleName}: ${spec.url}`));
+    };
+    document.head.appendChild(script);
+  });
+}
+
+function loadRegisteredAmd(moduleName) {
+  const registry = window.__tkipwWidgetModules || {};
+  const spec = registry[moduleName];
+  if (!spec || !spec.url) {
+    return Promise.reject(new Error(`Unknown widget module: ${moduleName}`));
+  }
+  const cached = amdLoads.get(spec.url);
+  if (cached) {
+    return cached;
+  }
+  const loading = loadAmdScript(moduleName, spec).catch((err) => {
+    amdLoads.delete(spec.url);
+    throw err;
+  });
+  amdLoads.set(spec.url, loading);
+  return loading;
+}
+
 function postToPython(msg) {
   if (window.ipc && typeof window.ipc.postMessage === "function") {
     window.ipc.postMessage(JSON.stringify(msg));
@@ -346,27 +532,11 @@ class TkipwManager extends HTMLManager {
   constructor(el) {
     super({
       loader: (moduleName) => {
-        if (moduleName === "anywidget") {
-          return Promise.resolve(anywidgetMod);
+        const bundled = lookupBundled(moduleName);
+        if (bundled) {
+          return Promise.resolve(bundled);
         }
-        if (moduleName === "jupyter-leaflet") {
-          return Promise.resolve(jupyterLeaflet);
-        }
-        if (moduleName === "ipycanvas") {
-          return Promise.resolve(ipycanvas);
-        }
-        if (moduleName === "bqplot") {
-          return Promise.resolve(bqplot);
-        }
-        if (moduleName === "bqscales") {
-          return Promise.resolve(bqscales);
-        }
-        if (moduleName === "jupyter-matplotlib") {
-          return Promise.resolve(jupyterMatplotlib);
-        }
-        return Promise.reject(
-          new Error(`Unknown widget module: ${moduleName}`)
-        );
+        return loadRegisteredAmd(moduleName);
       },
     });
     this.el = el;
@@ -375,46 +545,16 @@ class TkipwManager extends HTMLManager {
 
   /**
    * Override to avoid runtime require() (broken inside an IIFE bundle).
+   * Registered AMD/nbextension modules are loaded from the loopback host.
    */
   loadClass(className, moduleName, moduleVersion) {
     return Promise.resolve()
       .then(() => {
-        if (
-          moduleName === "@jupyter-widgets/base" ||
-          moduleName === "jupyter-js-widgets"
-        ) {
-          return base;
+        const bundled = lookupBundled(moduleName);
+        if (bundled) {
+          return bundled;
         }
-        if (
-          moduleName === "@jupyter-widgets/controls" ||
-          moduleName === "jupyter-js-widgets"
-        ) {
-          return controls;
-        }
-        if (moduleName === "anywidget") {
-          return anywidgetMod;
-        }
-        if (moduleName === "jupyter-leaflet") {
-          return jupyterLeaflet;
-        }
-        if (moduleName === "ipycanvas") {
-          return ipycanvas;
-        }
-        if (moduleName === "bqplot") {
-          return bqplot;
-        }
-        if (moduleName === "bqscales") {
-          return bqscales;
-        }
-        if (moduleName === "jupyter-matplotlib") {
-          return jupyterMatplotlib;
-        }
-        if (this.loader) {
-          return this.loader(moduleName, moduleVersion);
-        }
-        throw new Error(
-          `Could not load module ${moduleName}@${moduleVersion}`
-        );
+        return loadRegisteredAmd(moduleName);
       })
       .then((mod) => {
         if (mod && mod[className]) {
@@ -566,6 +706,7 @@ export async function boot() {
   const manager = new TkipwManager(mount);
   window.__tkipwManager = manager;
   window.__tkipwResizePlotly = () => resizePlotlyPlots(mount);
+  injectWidgetStyles(window.__tkipwWidgetModules);
 
   if (typeof ResizeObserver !== "undefined") {
     let resizeTimer = null;
@@ -600,6 +741,9 @@ export async function boot() {
           }
         } else if (msg.channel === "display") {
           await manager.displayModels(msg.model_ids || []);
+        } else if (msg.channel === "widget_modules") {
+          window.__tkipwWidgetModules = msg.modules || {};
+          injectWidgetStyles(window.__tkipwWidgetModules);
         }
       } catch (e) {
         console.error("[tkipw] deliver error", e);

@@ -1,7 +1,8 @@
 """Environment diagnostics for ``python -m tkipw doctor``.
 
-Does not create a Tk window or a native WebView. Discovery of third-party
-Jupyter widget modules is out of scope (that needs the generic loader).
+Does not create a Tk window or a native WebView. Third-party widget JS is
+loaded only via explicit ``register_widget_module`` (directory discovery is
+out of scope).
 """
 
 from __future__ import annotations

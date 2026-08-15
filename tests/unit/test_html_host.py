@@ -6,6 +6,8 @@ loopback HTTP server that srcdoc-heavy libraries rely on.
 
 from __future__ import annotations
 
+import pytest
+
 from tkipw.html_host import (
     demote_module_scripts,
     host_html_document,
@@ -118,3 +120,28 @@ def test_host_srcdoc_iframe_rewrites_srcdoc_to_src():
     assert hosted is not None
     assert "srcdoc" not in hosted
     assert "http://127.0.0.1:" in hosted
+
+
+def test_mount_directory_serves_nested_file_and_rejects_traversal(tmp_path):
+    from urllib.error import HTTPError
+    from urllib.request import urlopen
+
+    from tkipw.html_host import get_html_host
+
+    (tmp_path / "index.js").write_text("ok();\n", encoding="utf-8")
+    secret = tmp_path.parent / "secret.txt"
+    secret.write_text("nope\n", encoding="utf-8")
+    host = get_html_host()
+    base = host.mount_directory(tmp_path)
+    try:
+        with urlopen(base + "index.js", timeout=5) as resp:  # noqa: S310
+            assert resp.read() == b"ok();\n"
+            assert "javascript" in resp.headers.get_content_type()
+        with pytest.raises(HTTPError) as err:
+            urlopen(base + "../secret.txt", timeout=5)  # noqa: S310
+        assert err.value.code == 404
+        with pytest.raises(HTTPError) as err:
+            urlopen(base + "%2e%2e/secret.txt", timeout=5)  # noqa: S310
+        assert err.value.code == 404
+    finally:
+        host.unmount_directory(base)

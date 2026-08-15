@@ -15,7 +15,27 @@ import uuid
 from collections import OrderedDict
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse
+from pathlib import Path
+from urllib.parse import unquote, urlparse
+
+_MODULE_CONTENT_TYPES = {
+    ".js": "application/javascript; charset=utf-8",
+    ".mjs": "application/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+    ".map": "application/json",
+    ".wasm": "application/wasm",
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".woff": "font/woff",
+    ".woff2": "font/woff2",
+    ".ttf": "font/ttf",
+    ".html": "text/html; charset=utf-8",
+    ".txt": "text/plain; charset=utf-8",
+}
 
 _MODULE_SCRIPT_RE = re.compile(
     r'(<script)\s+type=(["\'])module\2',
@@ -33,6 +53,7 @@ class LocalHTMLHost:
 
     def __init__(self, *, max_documents: int = 96) -> None:
         self._documents: OrderedDict[str, tuple[bytes, str]] = OrderedDict()
+        self._directories: dict[str, Path] = {}
         self._lock = threading.Lock()
         self._max_documents = max_documents
         handler = self._make_handler()
@@ -48,6 +69,7 @@ class LocalHTMLHost:
 
     def _make_handler(self) -> type[BaseHTTPRequestHandler]:
         documents = self._documents
+        directories = self._directories
         lock = self._lock
 
         class Handler(BaseHTTPRequestHandler):
@@ -56,6 +78,9 @@ class LocalHTMLHost:
 
             def do_GET(self) -> None:  # noqa: N802
                 path = urlparse(self.path).path
+                if path.startswith("/modules/"):
+                    self._serve_module(path)
+                    return
                 key: str | None = None
                 if path.startswith("/document/") and path.endswith(".html"):
                     key = path[len("/document/") : -len(".html")]
@@ -73,6 +98,31 @@ class LocalHTMLHost:
                     self.send_error(404)
                     return
                 body, content_type = entry
+                self._write_bytes(body, content_type)
+
+            def _serve_module(self, path: str) -> None:
+                rest = path[len("/modules/") :]
+                key, sep, rel = rest.partition("/")
+                if not key or not sep or not rel:
+                    self.send_error(404)
+                    return
+                with lock:
+                    root = directories.get(key)
+                if root is None:
+                    self.send_error(404)
+                    return
+                target = _safe_file_under(root, unquote(rel))
+                if target is None:
+                    self.send_error(404)
+                    return
+                body = target.read_bytes()
+                suffix = target.suffix.lower()
+                content_type = _MODULE_CONTENT_TYPES.get(
+                    suffix, "application/octet-stream"
+                )
+                self._write_bytes(body, content_type)
+
+            def _write_bytes(self, body: bytes, content_type: str) -> None:
                 self.send_response(200)
                 self.send_header("Content-Type", content_type)
                 self.send_header("Content-Length", str(len(body)))
@@ -110,9 +160,45 @@ class LocalHTMLHost:
         ext = suffix if suffix.startswith(".") else f".{suffix}"
         return f"http://127.0.0.1:{self.port}/asset/{key}{ext}"
 
+    def mount_directory(self, root: str | Path) -> str:
+        """Serve files under *root* and return the directory's loopback URL."""
+        resolved = Path(root).expanduser().resolve()
+        if not resolved.is_dir():
+            raise NotADirectoryError(f"not a directory: {resolved}")
+        key = uuid.uuid4().hex
+        with self._lock:
+            self._directories[key] = resolved
+        return f"http://127.0.0.1:{self.port}/modules/{key}/"
+
+    def unmount_directory(self, base_url: str) -> None:
+        """Stop serving a directory previously returned by :meth:`mount_directory`."""
+        path = urlparse(base_url).path.strip("/")
+        parts = path.split("/")
+        if len(parts) < 2 or parts[0] != "modules":
+            return
+        with self._lock:
+            self._directories.pop(parts[1], None)
+
     def shutdown(self) -> None:
         self._httpd.shutdown()
         self._httpd.server_close()
+
+
+def _safe_file_under(root: Path, rel: str) -> Path | None:
+    """Return *root/rel* when it is a file inside *root*, else ``None``."""
+    if not rel or rel.startswith(("/", "\\")):
+        return None
+    candidate = Path(rel)
+    if candidate.is_absolute() or any(part in {".", ".."} for part in candidate.parts):
+        return None
+    target = (root / candidate).resolve()
+    try:
+        target.relative_to(root)
+    except ValueError:
+        return None
+    if not target.is_file():
+        return None
+    return target
 
 
 _host: LocalHTMLHost | None = None

@@ -149,6 +149,8 @@ root.mainloop()
 * `display` / `clear_output` / `Output` — notebook-style output under the cell
 * `display(..., display_id=True)` — returns a handle; `handle.update(...)` replaces that output
 * `register_mime_renderer(mime, fn)` — extra `_repr_mimebundle_` types → HTML
+* `register_widget_module(name, path)` — load a classic AMD/nbextension JS module
+  from a local file or directory (not bundled, not CDN)
 * `App(display_mode="inline"|"window")` — output pane vs one Tk pop-up per `display()`
   (window mode hides the host root so only the pop-ups are visible)
 * `plt.show()` — follows the active App (PNG inline, or native TkAgg windows)
@@ -257,7 +259,9 @@ register_extension(MyExtension())
 ```
 
 Extra `_repr_mimebundle_` keys (not a whole library) go through
-`register_mime_renderer(mime, fn)` instead.
+`register_mime_renderer(mime, fn)` instead. Classic AMD widget JS (for example
+`ipydatagrid`'s nbextension) is loaded with `register_widget_module(name, path)`
+pointing at a local file or directory — it is not fetched from a CDN.
 
 Built-ins:
 
@@ -321,8 +325,9 @@ avoid WebKitGTK hangs). See [`.github/workflows/ci.yml`](.github/workflows/ci.ym
 
 * **Alpha** — APIs may change
 * **Widget coverage** — standard ipywidgets controls + anywidget + ipyleaflet
-  + ipycanvas + bqplot + ipympl; no kernel or general dynamic third-party
-  widget modules
+  + ipycanvas + bqplot + ipympl are bundled. Other classic AMD widgets need
+  `register_widget_module(name, path)` pointing at their nbextension JS.
+  JupyterLab Module Federation is out of scope.
 * **PyVista on macOS** — client-side rendering only (see extensions above)
 * **External links** — http(s) outside the loopback host open in the system
   browser, not inside the widget WebView

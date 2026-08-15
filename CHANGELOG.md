@@ -15,6 +15,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - ``register_mime_renderer`` / ``unregister_mime_renderer`` for extra
   ``_repr_mimebundle_`` types (HTML / Markdown still win; custom types beat
   JSON / plain text)
+- ``register_widget_module`` loads classic AMD / nbextension JS from a local
+  path (loopback-hosted; not bundled and not fetched from a CDN)
 - ``WidgetFrame`` — a ``tk.Frame`` you pack yourself; ``App`` now subclasses it
   and still auto-packs (including ``parent=``)
 - ``display(..., display_id=True)`` returns a ``DisplayHandle``; ``update()`` /

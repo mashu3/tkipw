@@ -106,6 +106,7 @@ _SHELL = """\
   __BOOT_PROFILE_HEAD__
   <link rel="stylesheet" href="__RUNTIME_CSS_URL__" __CSS_ONLOAD__ />
   <style>__CSS__</style>
+  <script>window.__tkipwWidgetModules=__WIDGET_MODULES__;</script>
 </head>
 <body>
   <div id="tkipw-root">
@@ -687,11 +688,14 @@ def _load_shell_html(
     if theme not in ("light", "dark"):
         theme = "light"
     profile = _profile_enabled()
+    from .widget_modules import widget_modules_js
+
     return (
         _SHELL.replace("__THEME__", theme)
         .replace("__CSS__", _SHELL_CSS)
         .replace("__RUNTIME_JS_URL__", runtime_js_url)
         .replace("__RUNTIME_CSS_URL__", runtime_css_url)
+        .replace("__WIDGET_MODULES__", widget_modules_js())
         .replace(
             "__BOOT_PROFILE_HEAD__",
             _BOOT_PROFILE_HEAD if profile else "",
@@ -1015,6 +1019,13 @@ class WidgetFrame(tk.Frame):
         # tklab calls it after splash / before first Run; plain App users should
         # call it before relying on library display hooks.
         self._jupyter_installed = False
+        self._unwatch_widget_modules: Callable[[], None] | None = None
+
+        from .widget_modules import watch_widget_modules
+
+        self._unwatch_widget_modules = watch_widget_modules(
+            self._on_widget_modules_changed
+        )
 
         # Notebook-like error / logging visibility in the output area
         from .output import install_display_logging, install_excepthook
@@ -1087,6 +1098,13 @@ class WidgetFrame(tk.Frame):
 
         sync_matplotlib(self.display_mode)
         _profile_mark("ensure_jupyter_support end")
+
+    def _on_widget_modules_changed(
+        self, modules: Mapping[str, Mapping[str, str]]
+    ) -> None:
+        if self._destroyed:
+            return
+        self.send_to_js({"channel": "widget_modules", "modules": dict(modules)})
 
     def _on_page_load(self, event: PageLoadEvent, url: str | None) -> None:
         if _profile_enabled():
@@ -1485,6 +1503,10 @@ class WidgetFrame(tk.Frame):
         if self._destroyed:
             return
         self._destroyed = True
+
+        if self._unwatch_widget_modules is not None:
+            self._unwatch_widget_modules()
+            self._unwatch_widget_modules = None
 
         pop_bridge(self)
         try:
