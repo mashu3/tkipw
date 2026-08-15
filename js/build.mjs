@@ -154,11 +154,25 @@ const shared = {
   metafile: true,
 };
 
+// html-manager / lodash / ipycanvas expect these on the script scope.
+const browserPrelude = [
+  "var __webpack_public_path__ = __webpack_public_path__ || '';",
+  "var global = typeof globalThis !== 'undefined' ? globalThis : window;",
+].join(" ");
+
 const coreResult = await esbuild.build({
   ...shared,
   entryPoints: [path.join(__dirname, "src/index.js")],
   outfile: path.join(outDir, "runtime.js"),
   plugins: [anywidgetAmdPlugin],
+  banner: { js: `${browserPrelude} try {` },
+  footer: {
+    js:
+      "} catch (err) { try { window.__tkipwInitError = err; window.ipc && " +
+      "window.ipc.postMessage(JSON.stringify({channel:'error'," +
+      "message:String(err&&err.message||err)," +
+      "detail:String(err&&err.stack||err)})); } catch (e2) {} }",
+  },
 });
 assertNoAuditedInputs(coreResult.metafile, "runtime.js");
 await stripFontFace(path.join(outDir, "runtime.css"));
@@ -174,9 +188,6 @@ const packs = [
     id: "ipycanvas",
     entry: "src/packs/ipycanvas.js",
     plugins: [jupyterWidgetsBaseExternalPlugin()],
-    banner: {
-      js: "var global = typeof globalThis !== 'undefined' ? globalThis : window;",
-    },
   },
   {
     id: "bqplot",
@@ -197,7 +208,7 @@ for (const pack of packs) {
     entryPoints: [path.join(__dirname, pack.entry)],
     outfile,
     plugins: pack.plugins,
-    banner: pack.banner,
+    banner: { js: pack.banner?.js || browserPrelude },
   });
   assertNoAuditedInputs(result.metafile, `pack-${pack.id}.js`);
   await stripFontFace(path.join(outDir, `pack-${pack.id}.css`));
