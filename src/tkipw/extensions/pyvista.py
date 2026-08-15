@@ -232,7 +232,9 @@ class PyVistaExtension:
         return obj
 
 
-def _wait_future_pumping_tk(future: concurrent.futures.Future[Any], *, timeout: float) -> Any:
+def _wait_future_pumping_tk(
+    future: concurrent.futures.Future[Any], *, timeout: float
+) -> Any:
     """Wait for *future* while dispatching Tk so WebView sync hooks can run."""
     import tkinter as tk
 
