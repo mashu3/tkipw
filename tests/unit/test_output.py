@@ -64,6 +64,44 @@ class TestRenderHtml:
         html = render_html(MarkdownBundle())
         assert "<strong>bold</strong>" in html
 
+    def test_svg_mimebundle(self):
+        class SvgBundle:
+            def _repr_mimebundle_(self, include=None, exclude=None):
+                return {"image/svg+xml": '<svg xmlns="http://www.w3.org/2000/svg"/>'}
+
+        html = render_html(SvgBundle())
+        assert 'class="tkipw-svg"' in html
+        assert "<svg" in html
+
+    def test_jpeg_mimebundle(self):
+        class JpegBundle:
+            def _repr_mimebundle_(self, include=None, exclude=None):
+                return {"image/jpeg": b"\xff\xd8jpeg"}
+
+        html = render_html(JpegBundle())
+        assert "data:image/jpeg;base64," in html
+
+    def test_json_mimebundle(self):
+        class JsonBundle:
+            def _repr_mimebundle_(self, include=None, exclude=None):
+                return {"application/json": {"n": 1}}
+
+        html = render_html(JsonBundle())
+        assert 'class="tkipw-json"' in html
+        assert '"n": 1' in html
+
+    def test_svg_preferred_over_png(self):
+        class Both:
+            def _repr_mimebundle_(self, include=None, exclude=None):
+                return {
+                    "image/png": b"png",
+                    "image/svg+xml": "<svg/>",
+                }
+
+        html = render_html(Both())
+        assert "<svg" in html
+        assert "image/png" not in html
+
     def test_error_html(self):
         html = error_html("ValueError: boom")
         assert "ValueError" in html

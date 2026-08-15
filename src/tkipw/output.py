@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import base64
 import io
+import json
 import logging
 import sys
 import traceback
@@ -98,20 +99,9 @@ def render_html(obj: Any) -> str:
             if isinstance(data, tuple):
                 data = data[0]
             if isinstance(data, dict):
-                if "text/html" in data:
-                    return str(data["text/html"])
-                if "text/markdown" in data:
-                    return _render_markdown(str(data["text/markdown"]))
-                if "image/png" in data:
-                    raw = data["image/png"]
-                    if not isinstance(raw, str):
-                        raw = base64.b64encode(raw).decode("ascii")
-                    return (
-                        '<img style="max-width:100%;height:auto" '
-                        f'src="data:image/png;base64,{raw}"/>'
-                    )
-                if "text/plain" in data:
-                    return f"<pre>{_escape(str(data['text/plain']))}</pre>"
+                html = _render_mimebundle(data)
+                if html is not None:
+                    return html
         except Exception:
             pass
 
@@ -119,6 +109,62 @@ def render_html(obj: Any) -> str:
         return f'<pre class="tkipw-stream tkipw-stdout">{_escape(obj)}</pre>'
 
     return f'<pre class="tkipw-stream tkipw-stdout">{_escape(repr(obj))}</pre>'
+
+
+def _render_mimebundle(data: dict[str, Any]) -> str | None:
+    """Pick a Jupyter-like MIME from *data* and return an HTML fragment."""
+    if "text/html" in data:
+        return str(data["text/html"])
+    if "text/markdown" in data:
+        return _render_markdown(str(data["text/markdown"]))
+    if "image/svg+xml" in data:
+        return _render_svg(data["image/svg+xml"])
+    if "image/png" in data:
+        return _render_raster("image/png", data["image/png"])
+    if "image/jpeg" in data:
+        return _render_raster("image/jpeg", data["image/jpeg"])
+    if "application/json" in data:
+        return _render_json(data["application/json"])
+    if "text/plain" in data:
+        return f"<pre>{_escape(str(data['text/plain']))}</pre>"
+    return None
+
+
+def _render_raster(mime: str, raw: Any) -> str:
+    if not isinstance(raw, str):
+        raw = base64.b64encode(bytes(raw)).decode("ascii")
+    return f'<img style="max-width:100%;height:auto" src="data:{mime};base64,{raw}"/>'
+
+
+def _render_svg(raw: Any) -> str:
+    if isinstance(raw, bytes):
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            b64 = base64.b64encode(raw).decode("ascii")
+            return (
+                '<img style="max-width:100%;height:auto" '
+                f'src="data:image/svg+xml;base64,{b64}"/>'
+            )
+    else:
+        text = str(raw)
+    stripped = text.lstrip()
+    if stripped.startswith("<"):
+        return f'<div class="tkipw-svg" style="max-width:100%">{stripped}</div>'
+    return (
+        '<img style="max-width:100%;height:auto" '
+        f'src="data:image/svg+xml;base64,{text}"/>'
+    )
+
+
+def _render_json(raw: Any) -> str:
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError:
+            return f'<pre class="tkipw-json">{_escape(raw)}</pre>'
+    text = json.dumps(raw, indent=2, ensure_ascii=False, default=str)
+    return f'<pre class="tkipw-json">{_escape(text)}</pre>'
 
 
 def _render_markdown(source: str) -> str:

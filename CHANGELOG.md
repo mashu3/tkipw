@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- MIME bundle rendering for ``image/svg+xml``, ``image/jpeg``, and
+  ``application/json`` (SVG is preferred over PNG when both are present)
+
 ## [0.0.3] - 2026-08-15
 
 Adopt tkwry 0.1.4 (navigation, create-failed, downloads).
