@@ -12,6 +12,7 @@ import ipywidgets as widgets
 import pytest
 from support import RecordingBridge
 
+from tkipw.app import App
 from tkipw.comm_backend import (
     TkwryComm,
     get_bridge,
@@ -63,6 +64,63 @@ class TestBridgeStack:
 
         pop_bridge(a)
         assert get_bridge() is b
+
+
+class TestActivateContext:
+    def _app(self) -> App:
+        app = App.__new__(App)
+        app._destroyed = False
+        app.display_mode = "inline"
+        return app
+
+    def test_statement_keeps_app_active(self):
+        a = self._app()
+        b = self._app()
+        push_bridge(a)
+        push_bridge(b)
+        a.activate()
+        assert get_bridge() is a
+
+    def test_with_restores_previous(self):
+        a = self._app()
+        b = self._app()
+        push_bridge(a)
+        push_bridge(b)
+        with a.activate():
+            assert get_bridge() is a
+        assert get_bridge() is b
+
+    def test_with_restores_after_exception(self):
+        a = self._app()
+        b = self._app()
+        push_bridge(a)
+        push_bridge(b)
+        with pytest.raises(RuntimeError):
+            with a.activate():
+                raise RuntimeError("boom")
+        assert get_bridge() is b
+
+    def test_nested_with_restores_in_order(self):
+        a = self._app()
+        b = self._app()
+        push_bridge(a)
+        push_bridge(b)
+        with a.activate():
+            assert get_bridge() is a
+            with b.activate():
+                assert get_bridge() is b
+            assert get_bridge() is a
+        assert get_bridge() is b
+
+    def test_skips_destroyed_previous(self):
+        a = self._app()
+        b = self._app()
+        push_bridge(a)
+        push_bridge(b)
+        b._destroyed = True
+        with a.activate():
+            assert get_bridge() is a
+        assert get_bridge() is a
 
 
 class TestRouting:

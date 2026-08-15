@@ -154,6 +154,10 @@ b = App(title="B")
 a.display(widgets.Button(description="in A"))   # activates A → renders in A
 b.display(widgets.Button(description="in B"))   # activates B → renders in B
 
+with a.activate():
+    widgets.IntSlider()   # new comms go to A
+# B is active again
+
 a.destroy()
 b.destroy()   # last one out tears down global patches
 ```

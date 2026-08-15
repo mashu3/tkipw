@@ -914,6 +914,32 @@ def _ask_save_as(root: tk.Misc, filename: str) -> str:
     return path or ""
 
 
+class _AppActivation:
+    """Token from :meth:`App.activate`. Restores the previous App on exit."""
+
+    def __init__(self, app: App, previous: Any | None) -> None:
+        self._app = app
+        self._previous = previous
+
+    def __enter__(self) -> App:
+        return self._app
+
+    def __exit__(self, *exc: object) -> None:
+        previous = self._previous
+        if (
+            previous is None
+            or previous is self._app
+            or getattr(previous, "_destroyed", False)
+        ):
+            return None
+        restore = getattr(previous, "activate", None)
+        if callable(restore):
+            restore()
+        else:
+            push_bridge(previous)
+        return None
+
+
 class App:
     """Host ipywidgets / anywidget UIs inside a tkwry WebView.
 
@@ -1324,16 +1350,24 @@ class App:
                 )
             unregister_comm(comm_id)
 
-    def activate(self) -> None:
+    def activate(self) -> _AppActivation:
         """Make this App the active bridge so new widget comms route here.
 
-        Useful when several Apps are alive at once (the most recently used one
-        should receive newly created widget comms).
+        Calling this without ``with`` is unchanged: this App stays active until
+        another App is activated. As a context manager, the previous App is
+        restored on exit::
+
+            with app.activate():
+                slider = widgets.IntSlider()
         """
+        from .comm_backend import get_bridge
+
+        previous = get_bridge()
         push_bridge(self)
         from .display_mode import sync_matplotlib
 
         sync_matplotlib(self.display_mode)
+        return _AppActivation(self, previous)
 
     def set_display_mode(self, mode: str) -> None:
         """Switch this App between inline output and pop-up windows."""

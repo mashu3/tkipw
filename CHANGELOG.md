@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - MIME bundle rendering for ``image/svg+xml``, ``image/jpeg``, and
   ``application/json`` (SVG is preferred over PNG when both are present)
+- ``App.activate()`` as a context manager restores the previous App on exit
 
 ## [0.0.3] - 2026-08-15
 
