@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import ipywidgets as widgets
@@ -10,7 +11,7 @@ from support import FakeApp
 
 from tkipw.comm_backend import set_bridge
 from tkipw.display_mode import get_display_mode, set_display_mode
-from tkipw.output import Output, display
+from tkipw.output import Output, display, to_widget, update_display
 
 
 @pytest.fixture(autouse=True)
@@ -43,6 +44,22 @@ def test_window_mode_routes_through_open_display_window():
 
     open_window.assert_called_once()
     assert app._cell_output.children == ()
+
+
+def test_window_mode_update_reuses_tracked_output():
+    app = FakeApp(display_mode="window")
+    set_bridge(app)
+    tracked = Output()
+    tracked._append([to_widget("old")], display_id="slot")
+    popup = SimpleNamespace(_destroyed=False, _tracked_output=tracked)
+    app._display_id_windows = {"slot": popup}
+
+    with patch("tkipw.display_mode.open_display_window") as open_window:
+        update_display("new", display_id="slot")
+
+    open_window.assert_not_called()
+    assert len(tracked.children) == 1
+    assert "new" in tracked.children[0].value
 
 
 def test_output_context_still_captures_in_window_mode():

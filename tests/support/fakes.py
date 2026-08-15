@@ -47,8 +47,14 @@ class FakeApp:
         self._cell_output_mounted = True
         self.messages: list[dict[str, Any]] = []
 
-    def _append_output(self, items: list[Any]) -> None:
-        self._cell_output._append(items)
+    def _append_output(
+        self,
+        items: list[Any],
+        *,
+        display_id: str | None = None,
+        update: bool = False,
+    ) -> None:
+        self._cell_output._append(items, display_id=display_id, update=update)
 
     def _clear_output(self, wait: bool = False) -> None:
         self._cell_output.clear_output(wait=wait)

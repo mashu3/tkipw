@@ -402,53 +402,97 @@ class StackedOutput(out.Output):
     def __init__(self) -> None:
         super().__init__()
         self._serial = 0
+        self._id_sections: dict[str, widgets.Widget] = {}
 
     def clear_output(self, wait: bool = False) -> None:
         if wait:
             self._wait_clear = True
             return
         self._wait_clear = False
+        self._id_widgets.clear()
+        self._id_sections.clear()
         self.children = ()
         self._serial = 0
 
-    def _append(self, items: list[widgets.Widget]) -> None:
+    def _append(
+        self,
+        items: list[widgets.Widget],
+        *,
+        display_id: str | None = None,
+        update: bool = False,
+    ) -> None:
         if not items:
             return
         if self._wait_clear:
             self.clear_output(wait=False)
+
+        if display_id and update:
+            section = self._id_sections.get(display_id)
+            if section is not None:
+                old = self._id_widgets.get(display_id)
+                html_inplace = (
+                    old is not None
+                    and len(old) == 1
+                    and len(items) == 1
+                    and isinstance(old[0], widgets.HTML)
+                    and isinstance(items[0], widgets.HTML)
+                )
+                self._replace_section_body(section, items)
+                self._id_widgets[display_id] = old if html_inplace else tuple(items)
+                return
 
         self._serial += 1
         kind = _output_kind(items)
         header = widgets.HTML(
             value=(f'<div class="tkipw-section-header">{self._serial} · {kind}</div>')
         )
-        body: widgets.Widget
-        if len(items) == 1:
-            body = items[0]
-        else:
-            body = widgets.VBox(
-                items,
-                layout=widgets.Layout(width="100%", overflow="hidden"),
-            )
-        # overflow:hidden keeps folium/leaflet iframes from covering
-        # neighboring section chrome after map interaction resizes them.
-        # ipympl is pixel-sized (and JS may shrink-to-fit); clipping the
-        # section hides part of the canvas before resize lands.
-        overflow = "hidden"
-        if len(items) == 1 and getattr(items[0], "_model_module", None) == (
-            "jupyter-matplotlib"
-        ):
-            overflow = "visible"
         section = widgets.VBox(
-            [header, body],
+            [header, self._section_body(items)],
             layout=widgets.Layout(
                 width="100%",
                 margin="0 0 12px 0",
-                overflow=overflow,
+                overflow=self._section_overflow(items),
             ),
         )
         section.add_class("tkipw-section")
         self.children = tuple(self.children) + (section,)
+        if display_id:
+            self._id_widgets[display_id] = tuple(items)
+            self._id_sections[display_id] = section
+
+    def _section_body(self, items: list[widgets.Widget]) -> widgets.Widget:
+        if len(items) == 1:
+            return items[0]
+        return widgets.VBox(
+            items,
+            layout=widgets.Layout(width="100%", overflow="hidden"),
+        )
+
+    def _section_overflow(self, items: list[widgets.Widget]) -> str:
+        # overflow:hidden keeps folium/leaflet iframes from covering
+        # neighboring section chrome after map interaction resizes them.
+        # ipympl is pixel-sized (and JS may shrink-to-fit); clipping the
+        # section hides part of the canvas before resize lands.
+        if len(items) == 1 and getattr(items[0], "_model_module", None) == (
+            "jupyter-matplotlib"
+        ):
+            return "visible"
+        return "hidden"
+
+    def _replace_section_body(
+        self, section: widgets.Widget, items: list[widgets.Widget]
+    ) -> None:
+        header = section.children[0]
+        old_body = section.children[1]
+        if (
+            len(items) == 1
+            and isinstance(old_body, widgets.HTML)
+            and isinstance(items[0], widgets.HTML)
+        ):
+            old_body.value = items[0].value
+            return
+        section.layout.overflow = self._section_overflow(items)
+        section.children = (header, self._section_body(items))
 
 
 def _output_kind(items: list[widgets.Widget]) -> str:

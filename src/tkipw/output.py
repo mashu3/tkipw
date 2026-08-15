@@ -15,6 +15,7 @@ import json
 import logging
 import sys
 import traceback
+import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from typing import Any
@@ -225,6 +226,27 @@ def _current_stream_output() -> Any | None:
     return _stream_output_stack[-1] if _stream_output_stack else None
 
 
+class DisplayHandle:
+    """Notebook-like handle for updating a previous ``display()``."""
+
+    def __init__(self, display_id: str) -> None:
+        self.display_id = display_id
+
+    def update(self, *objs: Any) -> None:
+        display(*objs, display_id=self.display_id, update=True)
+
+    def display(self, *objs: Any) -> None:
+        display(*objs, display_id=self.display_id, update=False)
+
+
+def _resolve_display_id(display_id: str | bool | None) -> str | None:
+    if display_id is True:
+        return str(uuid.uuid4())
+    if display_id is False or display_id is None:
+        return None
+    return str(display_id)
+
+
 def display_stream(*objs: Any) -> None:
     """Display stdout/stderr/error/logging, honoring a stream-only target."""
     target = _current_stream_output()
@@ -234,13 +256,22 @@ def display_stream(*objs: Any) -> None:
     display(*objs)
 
 
-def display(*objs: Any) -> None:
+def display(
+    *objs: Any,
+    display_id: str | bool | None = None,
+    update: bool = False,
+    **_ignored: Any,
+) -> DisplayHandle | None:
     """Send objects to the active notebook-style output area or a pop-up window.
 
     Prefer an ``Output`` context; otherwise follow :func:`get_display_mode`:
 
     * ``inline`` — App default output area
-    * ``window`` — a new Tk ``Toplevel`` per call
+    * ``window`` — a new Tk ``Toplevel`` per call (or the existing one when
+      ``update=True`` and ``display_id`` matches)
+
+    ``display_id=True`` allocates an id and returns a :class:`DisplayHandle`.
+    ``handle.update(obj)`` replaces that output in place.
     """
     from .comm_backend import get_bridge
     from .display_mode import (
@@ -249,29 +280,71 @@ def display(*objs: Any) -> None:
         open_display_window,
     )
 
+    slot = _resolve_display_id(display_id)
+    if update and slot is None:
+        raise ValueError("update=True requires display_id")
+    handle = DisplayHandle(slot) if slot is not None else None
     if not objs:
-        return
+        return handle
 
     converted = [to_widget(o) for o in objs]
     target = _current_output()
     if target is not None:
-        target._append(converted)
-        return
+        target._append(converted, display_id=slot, update=update)
+        return handle
 
     if get_display_mode() == "window":
         app = get_bridge()
+        if (
+            update
+            and slot is not None
+            and _update_display_window(app, converted, display_id=slot)
+        ):
+            return handle
         prefix = str(getattr(app, "title", None) or "tkipw") if app else "tkipw"
         if len(objs) == 1:
             title = display_title_for(objs[0], app_title=prefix)
         else:
             title = f"{prefix} · output"
-        open_display_window(*converted, title=title, sources=objs)
-        return
+        open_display_window(
+            *converted,
+            title=title,
+            sources=objs,
+            display_id=slot,
+        )
+        return handle
 
     app = get_bridge()
     if app is None:
         raise RuntimeError("display() requires an active tkipw App (or Output context)")
-    app._append_output(converted)
+    app._append_output(converted, display_id=slot, update=update)
+    return handle
+
+
+def update_display(*objs: Any, display_id: str, **kwargs: Any) -> None:
+    """Replace a previous ``display(..., display_id=)`` output."""
+    kwargs.pop("update", None)
+    display(*objs, display_id=display_id, update=True, **kwargs)
+
+
+def _update_display_window(
+    host: Any,
+    items: list[Any],
+    *,
+    display_id: str,
+) -> bool:
+    """Update an existing window-mode pop-up. Return False if none is open."""
+    if host is None:
+        return False
+    handles = getattr(host, "_display_id_windows", None) or {}
+    popup = handles.get(display_id)
+    if popup is None or getattr(popup, "_destroyed", False):
+        return False
+    tracked = getattr(popup, "_tracked_output", None)
+    if tracked is None:
+        return False
+    tracked._append(items, display_id=display_id, update=True)
+    return True
 
 
 def clear_output(wait: bool = False) -> None:
@@ -309,20 +382,63 @@ def _ensure_output_class() -> type:
             kwargs.setdefault("layout", widgets.Layout(width="100%"))
             super().__init__(children=(), **kwargs)
             self._wait_clear = False
+            self._id_widgets: dict[str, tuple[Any, ...]] = {}
 
         def clear_output(self, wait: bool = False) -> None:
             if wait:
                 self._wait_clear = True
                 return
             self._wait_clear = False
+            self._id_widgets.clear()
             self.children = ()
 
-        def _append(self, items: list[Any]) -> None:
+        def _append(
+            self,
+            items: list[Any],
+            *,
+            display_id: str | None = None,
+            update: bool = False,
+        ) -> None:
             if self._wait_clear:
+                self._id_widgets.clear()
                 self.children = tuple(items)
                 self._wait_clear = False
-            else:
-                self.children = tuple(self.children) + tuple(items)
+                if display_id:
+                    self._id_widgets[display_id] = tuple(items)
+                return
+            if display_id and update:
+                old = self._id_widgets.get(display_id)
+                if old and self._replace_span(old, items):
+                    html_inplace = (
+                        len(old) == 1
+                        and len(items) == 1
+                        and isinstance(old[0], widgets.HTML)
+                        and isinstance(items[0], widgets.HTML)
+                    )
+                    self._id_widgets[display_id] = old if html_inplace else tuple(items)
+                    return
+            self.children = tuple(self.children) + tuple(items)
+            if display_id:
+                self._id_widgets[display_id] = tuple(items)
+
+        def _replace_span(self, old: tuple[Any, ...], new: list[Any]) -> bool:
+            if (
+                len(old) == 1
+                and len(new) == 1
+                and isinstance(old[0], widgets.HTML)
+                and isinstance(new[0], widgets.HTML)
+            ):
+                old[0].value = new[0].value
+                return True
+            children = list(self.children)
+            n = len(old)
+            if n == 0:
+                return False
+            for i in range(len(children) - n + 1):
+                if tuple(children[i : i + n]) == old:
+                    self.children = tuple(children[:i] + list(new) + children[i + n :])
+                    return True
+            return False
 
         def __enter__(self) -> Any:
             _output_stack.append(self)

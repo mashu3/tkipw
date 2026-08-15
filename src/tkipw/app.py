@@ -1459,9 +1459,15 @@ class WidgetFrame(tk.Frame):
             self._cell_output_mounted = True
         return self._cell_output
 
-    def _append_output(self, items: list[Any]) -> None:
+    def _append_output(
+        self,
+        items: list[Any],
+        *,
+        display_id: str | None = None,
+        update: bool = False,
+    ) -> None:
         out = self._ensure_cell_output()
-        out._append(items)
+        out._append(items, display_id=display_id, update=update)
 
     def _clear_output(self, wait: bool = False) -> None:
         out = self._ensure_cell_output()

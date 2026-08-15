@@ -11,6 +11,7 @@ import logging
 import sys
 
 import ipywidgets as widgets
+import pytest
 from IPython.display import HTML, Markdown
 
 from tkipw.output import (
@@ -26,6 +27,7 @@ from tkipw.output import (
     to_widget,
     uninstall_display_logging,
     uninstall_excepthook,
+    update_display,
 )
 
 
@@ -179,6 +181,31 @@ class TestOutput:
         out._append([widgets.Label("x")])
         out.clear_output(wait=False)
         assert out.children == ()
+
+    def test_display_id_update_replaces_html_in_place(self):
+        out = Output()
+        with out:
+            handle = display("one", display_id=True)
+            assert handle is not None
+            first = out.children[0]
+            handle.update("two")
+        assert len(out.children) == 1
+        assert out.children[0] is first
+        assert "two" in first.value
+
+    def test_update_display_keeps_other_outputs(self):
+        out = Output()
+        with out:
+            display("keep")
+            display("old", display_id="slot")
+            update_display("new", display_id="slot")
+        assert len(out.children) == 2
+        assert "keep" in out.children[0].value
+        assert "new" in out.children[1].value
+
+    def test_update_without_display_id_raises(self):
+        with pytest.raises(ValueError, match="display_id"):
+            display("x", update=True)
 
     def test_stream_context_groups_errors_but_not_regular_display(self):
         stream = Output()

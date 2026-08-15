@@ -90,6 +90,20 @@ def test_stacked_output_wait_clear_replaces_sections():
     assert section.children[1].value == "new"
 
 
+def test_stacked_output_updates_section_in_place():
+    output = StackedOutput()
+    output._append([widgets.HTML(value="keep")])
+    first = widgets.HTML(value="old")
+    output._append([first], display_id="slot")
+    output._append([widgets.HTML(value="new")], display_id="slot", update=True)
+
+    assert len(output.children) == 2
+    assert "1 ·" in output.children[0].children[0].value
+    assert "2 ·" in output.children[1].children[0].value
+    assert output.children[1].children[1] is first
+    assert first.value == "new"
+
+
 def test_display_mode_menu_updates_app_and_output_pane():
     playground = Playground.__new__(Playground)
     playground._display_mode_var = MagicMock()

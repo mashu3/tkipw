@@ -32,6 +32,24 @@ def test_ipython_display_bridge_forwards_to_output():
     set_bridge(None)
 
 
+def test_ipython_display_id_update():
+    install_jupyter_support()
+    app = FakeApp()
+    set_bridge(app)
+    clear_output()
+
+    handle = ipy_display.display("one", display_id=True)
+    assert handle is not None
+    assert len(app._cell_output.children) == 1
+    handle.update("two")
+    assert len(app._cell_output.children) == 1
+    assert "two" in app._cell_output.children[0].value
+    ipy_display.update_display("three", display_id=handle.display_id)
+    assert "three" in app._cell_output.children[0].value
+
+    set_bridge(None)
+
+
 def test_custom_extension_can_transform_objects():
     class Marker:
         pass

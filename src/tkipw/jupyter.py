@@ -28,6 +28,7 @@ _enabling: set[str] = set()
 _bridge_installed = False
 _builtins_loaded = False
 _original_ipython_display: Any | None = None
+_original_ipython_update_display: Any | None = None
 _original_builtins_import: Any | None = None
 _lazy_import_hook_installed = False
 _pyvista_enabling = False
@@ -143,6 +144,7 @@ def install_jupyter_support() -> None:
 
 def _install_ipython_display_bridge() -> None:
     global _bridge_installed, _original_ipython_display
+    global _original_ipython_update_display
     if _bridge_installed:
         return
     try:
@@ -151,21 +153,38 @@ def _install_ipython_display_bridge() -> None:
         return
 
     from .output import display as tkipw_display
+    from .output import update_display as tkipw_update_display
 
     _original_ipython_display = ipy_display.display
+    _original_ipython_update_display = getattr(ipy_display, "update_display", None)
 
-    def _bridged(*objs: Any, **_kwargs: Any) -> None:
-        if objs:
-            # ``output.to_widget`` is the canonical transform gateway.
-            tkipw_display(*objs)
+    def _bridged(*objs: Any, **kwargs: Any) -> Any:
+        clear = bool(kwargs.pop("clear", False))
+        if clear:
+            from .output import clear_output
+
+            clear_output(wait=True)
+        display_id = kwargs.pop("display_id", None)
+        update = bool(kwargs.pop("update", False))
+        if not objs and display_id is None:
+            return None
+        return tkipw_display(*objs, display_id=display_id, update=update)
+
+    def _bridged_update(obj: Any, display_id: str | None = None, **kwargs: Any) -> None:
+        if display_id is not None:
+            kwargs["display_id"] = display_id
+        kwargs["update"] = True
+        tkipw_update_display(obj, **kwargs)
 
     ipy_display.display = _bridged  # type: ignore[assignment]
+    ipy_display.update_display = _bridged_update  # type: ignore[assignment]
     _bridge_installed = True
 
 
 def uninstall_jupyter_support() -> None:
     """Restore ``IPython.display.display`` (undo the display bridge)."""
     global _bridge_installed, _original_ipython_display
+    global _original_ipython_update_display
     for name in reversed(tuple(_extensions)):
         if name not in _enabled:
             continue
@@ -186,11 +205,17 @@ def uninstall_jupyter_support() -> None:
     except ImportError:
         _bridge_installed = False
         _original_ipython_display = None
+        _original_ipython_update_display = None
         return
     if _original_ipython_display is not None:
         ipy_display.display = _original_ipython_display  # type: ignore[assignment]
+    if _original_ipython_update_display is not None:
+        ipy_display.update_display = (  # type: ignore[assignment]
+            _original_ipython_update_display
+        )
     _bridge_installed = False
     _original_ipython_display = None
+    _original_ipython_update_display = None
 
 
 def _load_builtin_extensions() -> None:

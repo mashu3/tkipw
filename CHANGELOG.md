@@ -14,6 +14,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   ``_repr_json_`` when no richer MIME bundle is present
 - ``WidgetFrame`` — a ``tk.Frame`` you pack yourself; ``App`` now subclasses it
   and still auto-packs (including ``parent=``)
+- ``display(..., display_id=True)`` returns a ``DisplayHandle``; ``update()`` /
+  ``update_display()`` replace that output (inline Output and window pop-ups)
 - ``App.activate()`` as a context manager restores the previous App on exit
 - ``python -m tkipw doctor`` reports package versions, WebView engine, and
   bundled widget assets (no window / WebView is created)

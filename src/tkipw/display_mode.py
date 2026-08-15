@@ -145,6 +145,7 @@ def open_display_window(
     width: int | None = None,
     height: int | None = None,
     sources: tuple[Any, ...] | list[Any] | None = None,
+    display_id: str | None = None,
 ) -> Any:
     """Open a ``Toplevel`` hosting a fresh App and mount *widgets* in it.
 
@@ -287,6 +288,10 @@ def open_display_window(
                 windows.remove(popup)
             except ValueError:
                 pass
+            if display_id:
+                id_windows = getattr(host, "_display_id_windows", None)
+                if isinstance(id_windows, dict):
+                    id_windows.pop(display_id, None)
             # Window-mode host is withdrawn — quit when the last figure closes.
             if (
                 getattr(host, "_owns_root", False)
@@ -298,7 +303,20 @@ def open_display_window(
 
     top.protocol("WM_DELETE_WINDOW", _close)
     if widgets:
-        popup.display(*widgets)
+        if display_id:
+            from .output import Output
+
+            tracked = Output()
+            popup.display(tracked)
+            tracked._append(list(widgets), display_id=display_id)
+            popup._tracked_output = tracked
+            id_windows = getattr(host, "_display_id_windows", None)
+            if id_windows is None:
+                id_windows = {}
+                host._display_id_windows = id_windows
+            id_windows[display_id] = popup
+        else:
+            popup.display(*widgets)
         _schedule_ipympl_window_sync(top, popup, *(sources or ()), *widgets)
 
     if cloaked:
