@@ -110,6 +110,19 @@ def test_compact_shell_zero_pads_canvas_and_bqplot():
     assert ":has(.bqplot) .jupyter-widgets" not in _SHELL_CSS
 
 
+def test_inline_shell_scales_ipycanvas_to_pane_width():
+    from tkipw.app import _SHELL_CSS
+
+    assert (
+        "body:not(.tkipw-compact) #tkipw-widgets canvas.jupyter-widgets" in _SHELL_CSS
+    )
+    # Aspect ratio comes from height:auto, not a second 100% that would stretch.
+    block = _SHELL_CSS.split("canvas.jupyter-widgets")[1].split("}")[0]
+    assert "width: 100% !important" in block
+    assert "height: auto !important" in block
+    assert "min-width: 0 !important" in block
+
+
 def test_shell_styles_pandas_dataframe_like_jupyter():
     from tkipw.app import _SHELL_CSS
 

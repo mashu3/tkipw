@@ -38,6 +38,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Leaflet, ipycanvas, bqplot, and ipympl load as separate JS packs on first
   use (core ``runtime.js`` keeps html-manager, controls, and anywidget)
 
+### Fixed
+
+- Lazy import hook no longer enables the Matplotlib adapter while
+  ``matplotlib`` / ``pyplot`` is still initializing. ``importlib.import_module``
+  is hooked the same way as ``__import__``, so
+  ``importlib.import_module("matplotlib.pyplot")`` after Jupyter support
+  no longer raises ``partially initialized module 'matplotlib'``.
+- Pillow's adapter key (``pillow``) is resolved to ``PIL`` / ``Pillow`` in
+  ``sys.modules``, so ``from PIL import Image`` after Jupyter support still
+  patches ``Image.show()`` (otherwise macOS Preview / a native window opens).
+- Inline ipycanvas fills the pane width (``height: auto``) so the drawing
+  buffer's aspect ratio is kept instead of the attribute pixel box.
+- Rewrite the identifier ``global`` to ``globalThis`` in widget packs so
+  ipycanvas's Node ``buffer`` polyfill can boot inside a strict IIFE
+
 ## [0.0.3] - 2026-08-15
 
 Adopt tkwry 0.1.4 (navigation, create-failed, downloads).

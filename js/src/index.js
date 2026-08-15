@@ -503,8 +503,9 @@ class TkipwManager extends HTMLManager {
         return loadRegisteredAmd(moduleName);
       })
       .then((mod) => {
-        if (mod && mod[className]) {
-          return mod[className];
+        const ns = mod && mod[className] ? mod : mod && mod.default;
+        if (ns && ns[className]) {
+          return ns[className];
         }
         throw new Error(
           `Class ${className} not found in module ${moduleName}@${moduleVersion}`

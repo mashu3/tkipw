@@ -12,8 +12,12 @@ from typing import Any, Literal
 MatplotlibDisplayMode = Literal["inline", "window", "widget"]
 
 _IPYMPL_BACKEND = "module://ipympl.backend_nbagg"
-# Top-level ``import ipympl`` / ``from ipympl import …`` in user source.
-_IPYMPL_IMPORT_RE = re.compile(r"(?m)^\s*(?:import\s+ipympl\b|from\s+ipympl\b)")
+# Top-level ``import ipympl`` / ``from ipympl import …`` / importlib form.
+_IPYMPL_IMPORT_RE = re.compile(
+    r"(?m)^\s*(?:"
+    r"import\s+ipympl\b|from\s+ipympl\b|"
+    r"importlib\.import_module\(\s*[\"']ipympl(?:\.[^\"']*)?[\"']\s*\))"
+)
 
 
 class MatplotlibExtension:

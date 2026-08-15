@@ -207,11 +207,73 @@ class TestMatplotlib:
         assert get_extension("matplotlib").mode == "widget"  # type: ignore[union-attr]
 
         sync_matplotlib_from_source(
+            'import importlib\nimportlib.import_module("ipympl")\n'
+        )
+        assert get_extension("matplotlib").mode == "widget"  # type: ignore[union-attr]
+
+        sync_matplotlib_from_source(
             "import matplotlib.pyplot as plt\nimport numpy as np\n"
         )
         assert get_extension("matplotlib").mode == "inline"  # type: ignore[union-attr]
 
         enable_matplotlib(mode="inline")
+
+    def test_importlib_pyplot_after_hook_does_not_circular_import(self):
+        pytest.importorskip("matplotlib")
+        import subprocess
+        import sys as py_sys
+        import textwrap
+
+        script = textwrap.dedent(
+            """
+            from tkipw.jupyter import install_jupyter_support, get_extension
+            install_jupyter_support()
+            import importlib
+            plt = importlib.import_module("matplotlib.pyplot")
+            ext = get_extension("matplotlib")
+            assert ext is not None
+            fig = plt.figure()
+            fig.savefig  # package finished initializing
+            print("ok", type(fig).__name__)
+            """
+        )
+        result = subprocess.run(
+            [py_sys.executable, "-c", script],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        assert "ok Figure" in result.stdout
+
+    def test_importlib_ipympl_after_hook_switches_widget_backend(self):
+        pytest.importorskip("ipympl")
+        import subprocess
+        import sys as py_sys
+        import textwrap
+
+        script = textwrap.dedent(
+            """
+            from tkipw.jupyter import install_jupyter_support, get_extension
+            install_jupyter_support()
+            import importlib
+            importlib.import_module("matplotlib.pyplot")
+            importlib.import_module("ipympl")
+            ext = get_extension("matplotlib")
+            assert ext is not None and ext.mode == "widget"
+            plt = importlib.import_module("matplotlib.pyplot")
+            fig, _ax = plt.subplots()
+            print("ok", type(fig.canvas).__module__)
+            """
+        )
+        result = subprocess.run(
+            [py_sys.executable, "-c", script],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        assert "ok ipympl.backend_nbagg" in result.stdout
 
 
 class TestPyVista:
@@ -314,6 +376,38 @@ class TestPillow:
 
         assert len(output.children) == 1
         assert "data:image/png;base64," in output.children[0].value
+
+    def test_import_pil_after_hook_patches_show(self):
+        pytest.importorskip("PIL")
+        import subprocess
+        import sys as py_sys
+        import textwrap
+
+        script = textwrap.dedent(
+            """
+            from tkipw.jupyter import install_jupyter_support, get_extension
+            from tkipw.output import Output
+
+            install_jupyter_support()
+            from PIL import Image
+
+            ext = get_extension("pillow")
+            assert ext is not None and ext._setup
+            output = Output()
+            with output:
+                Image.new("RGB", (2, 2), "red").show()
+            assert output.children
+            print("ok", len(output.children))
+            """
+        )
+        result = subprocess.run(
+            [py_sys.executable, "-c", script],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        assert "ok 1" in result.stdout
 
 
 class TestAltair:

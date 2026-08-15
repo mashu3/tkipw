@@ -366,6 +366,21 @@ html[data-theme="dark"] {
   overflow: hidden;
   flex: 0 0 auto;
 }
+/* ipycanvas: the view ``el`` IS the ``<canvas>``. Width/height attributes
+   size the drawing buffer *and* the default CSS box, so a 640×360 canvas
+   stays 640px even though ``.jupyter-widgets { width:100% }`` is set —
+   the attribute presentational hint plus flex ``min-width:auto`` win.
+   Inline pane: fill the column, keep the bitmap aspect ratio.
+   Compact pop-ups are already sized to the bitmap; leave them alone.
+   Do not target ipympl's inner canvases (they are not ``.jupyter-widgets``). */
+body:not(.tkipw-compact) #tkipw-widgets canvas.jupyter-widgets {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  height: auto !important;
+  display: block;
+  box-sizing: border-box;
+}
 /* Keep image output inside the viewport.
    Never target bare ``img`` — ipyleaflet tiles/markers set pixel sizes via
    inline style, and ``height: auto !important`` / ``max-width: 100%``
@@ -665,6 +680,7 @@ body.tkipw-compact img.tkipw-raster {
 }
 
 """
+
 
 # Lazy widget packs: served from html/ when a matching module is first loaded.
 # (js_name, css_name) live next to runtime.js after ``npm run build``.

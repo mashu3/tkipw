@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import atexit
 import builtins
+import importlib
+import sys
 import threading
 from collections import OrderedDict
 from typing import Any, Protocol
@@ -30,6 +32,7 @@ _builtins_loaded = False
 _original_ipython_display: Any | None = None
 _original_ipython_update_display: Any | None = None
 _original_builtins_import: Any | None = None
+_original_import_module: Any | None = None
 _lazy_import_hook_installed = False
 _pyvista_enabling = False
 _pyvista_import_depth = 0
@@ -401,12 +404,84 @@ def _try_enable_ipympl() -> None:
         _ipympl_enabling = False
 
 
+def _is_initializing(module: Any) -> bool:
+    """True while ``module`` is still executing its own ``__init__`` / body."""
+    spec = getattr(module, "__spec__", None)
+    return bool(spec is not None and getattr(spec, "_initializing", False))
+
+
+# Adapter registry keys that do not match ``sys.modules`` names.
+_PACKAGE_MODULE_NAMES: dict[str, tuple[str, ...]] = {
+    "pillow": ("PIL", "Pillow"),
+}
+
+
+def _package_ready(key: str) -> bool:
+    """Whether *key* is safe to hand to an adapter ``setup()``.
+
+    ``from matplotlib import _api`` during matplotlib's own import would
+    otherwise look like a completed import and ``enable_matplotlib`` would
+    ``import pyplot`` against a partial package (``rcParams`` missing).
+    ``importlib.import_module`` bypasses ``builtins.__import__``, so nested
+    absolute imports can also fire the hook before pyplot finishes.
+
+    Adapter keys may differ from import names (``pillow`` → ``PIL``).
+    """
+    if key == "matplotlib":
+        mpl = sys.modules.get("matplotlib")
+        if mpl is None or _is_initializing(mpl) or not hasattr(mpl, "rcParams"):
+            return False
+        pyplot = sys.modules.get("matplotlib.pyplot")
+        if pyplot is not None and _is_initializing(pyplot):
+            return False
+        return True
+    for name in _PACKAGE_MODULE_NAMES.get(key, (key,)):
+        module = sys.modules.get(name)
+        if module is not None:
+            return not _is_initializing(module)
+    return False
+
+
+def _enable_lazy_package(key: str) -> None:
+    if not _package_ready(key):
+        return
+    if key == "ipympl":
+        _try_enable_ipympl()
+    elif key == "pyvista":
+        _try_enable_pyvista()
+    elif key == "matplotlib" and _lazy_import_depths.get("ipympl", 0) > 0:
+        # Nested under ``import ipympl`` — do not enable the inline Agg
+        # adapter first; ``_try_enable_ipympl`` switches to widget mode
+        # when ipympl finishes.
+        return
+    else:
+        _enable_builtin(key)
+
+
+def _begin_lazy_import(key: str | None) -> None:
+    if key is not None:
+        _lazy_import_depths[key] = _lazy_import_depths.get(key, 0) + 1
+
+
+def _end_lazy_import(key: str | None) -> None:
+    if key is None:
+        return
+    depth = _lazy_import_depths.get(key, 1) - 1
+    if depth <= 0:
+        _lazy_import_depths.pop(key, None)
+        _enable_lazy_package(key)
+    else:
+        _lazy_import_depths[key] = depth
+
+
 def _install_lazy_import_hook() -> None:
     """Enable matching adapters when optional libraries are imported."""
     global _lazy_import_hook_installed, _original_builtins_import
+    global _original_import_module
     if _lazy_import_hook_installed:
         return
     _original_builtins_import = builtins.__import__
+    _original_import_module = importlib.import_module
 
     def _hooked_import(
         name: str,
@@ -417,41 +492,35 @@ def _install_lazy_import_hook() -> None:
     ) -> Any:
         assert _original_builtins_import is not None
         key = _package_key_for_import(name, level=level)
-        if key is not None:
-            _lazy_import_depths[key] = _lazy_import_depths.get(key, 0) + 1
+        _begin_lazy_import(key)
         try:
-            module = _original_builtins_import(name, globals, locals, fromlist, level)
+            return _original_builtins_import(name, globals, locals, fromlist, level)
         finally:
-            if key is not None:
-                depth = _lazy_import_depths.get(key, 1) - 1
-                if depth <= 0:
-                    _lazy_import_depths.pop(key, None)
-                    if key == "ipympl":
-                        _try_enable_ipympl()
-                    elif key == "pyvista":
-                        _try_enable_pyvista()
-                    elif (
-                        key == "matplotlib" and _lazy_import_depths.get("ipympl", 0) > 0
-                    ):
-                        # Nested under ``import ipympl`` — do not enable the
-                        # inline Agg adapter first; ``_try_enable_ipympl``
-                        # switches straight to widget mode when ipympl finishes.
-                        pass
-                    else:
-                        _enable_builtin(key)
-                else:
-                    _lazy_import_depths[key] = depth
-        return module
+            _end_lazy_import(key)
+
+    def _hooked_import_module(name: str, package: str | None = None) -> Any:
+        assert _original_import_module is not None
+        key = _package_key_for_import(name, level=0)
+        _begin_lazy_import(key)
+        try:
+            return _original_import_module(name, package)
+        finally:
+            _end_lazy_import(key)
 
     builtins.__import__ = _hooked_import  # type: ignore[assignment]
+    importlib.import_module = _hooked_import_module  # type: ignore[assignment]
     _lazy_import_hook_installed = True
 
 
 def _uninstall_lazy_import_hook() -> None:
     global _lazy_import_hook_installed, _original_builtins_import
+    global _original_import_module
     if not _lazy_import_hook_installed or _original_builtins_import is None:
         return
     builtins.__import__ = _original_builtins_import
     _original_builtins_import = None
+    if _original_import_module is not None:
+        importlib.import_module = _original_import_module  # type: ignore[assignment]
+        _original_import_module = None
     _lazy_import_hook_installed = False
     _lazy_import_depths.clear()

@@ -152,6 +152,10 @@ const shared = {
   mainFields: ["browser", "module", "main"],
   conditions: ["import", "require", "default"],
   metafile: true,
+  // ipycanvas's Node ``buffer`` polyfill reads the identifier ``global``.
+  // Packs are an IIFE (strict), so a file-level ``var global`` banner is not
+  // visible inside the bundle — rewrite the identifier at build time.
+  define: { global: "globalThis" },
 };
 
 // html-manager / lodash / ipycanvas expect these on the script scope.
