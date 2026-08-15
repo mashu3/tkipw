@@ -15,6 +15,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   HTTP(S) downloads use tkwry ``on_download`` (``data:`` / ``blob:`` save
   still goes through the JS bridge).
 
+### Fixed
+
+- Retry closing the nested Playground Tk window in CI until it exists, so a
+  slow ``_exec_code`` (Windows ARM64) cannot miss ``after(100)`` and hang in
+  ``wait_window``
+
 ## [0.0.2] - 2026-07-22
 
 ### Added

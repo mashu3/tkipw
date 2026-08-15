@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 import tkinter as tk
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -171,15 +172,32 @@ def test_closing_tkinter_window_ends_run_without_stop(tk_root):
     playground._set_status = MagicMock()
     playground.root = root
 
-    def close_user_window() -> None:
+    # Do not fire once at a fixed delay: `_exec_code` can take >100ms on
+    # Windows ARM64 (matplotlib sync / compile) so the window would not
+    # exist yet, wait_window would never return, and CI hangs.
+    deadline = time.monotonic() + 10.0
+    timed_out = False
+
+    def close_when_ready() -> None:
+        nonlocal timed_out
         for window in list(playground._user_tk_roots):
             try:
                 if window.winfo_exists():
                     window.destroy()
+                    return
             except tk.TclError:
                 pass
+        if time.monotonic() >= deadline:
+            timed_out = True
+            playground._stop_requested = True
+            playground._quit_user_tk_windows()
+            return
+        try:
+            root.after(50, close_when_ready)
+        except tk.TclError:
+            timed_out = True
 
-    root.after(100, close_user_window)
+    root.after(0, close_when_ready)
     playground._exec_code(
         "\n".join(
             [
@@ -193,6 +211,7 @@ def test_closing_tkinter_window_ends_run_without_stop(tk_root):
         "tk_app.py",
     )
 
+    assert not timed_out, "user Tk window never appeared"
     playground._finish.assert_called_once_with("done · tk_app.py")
     # Playground root must stay alive (Misc.quit would end its mainloop).
     assert root.winfo_exists()
