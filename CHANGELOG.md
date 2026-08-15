@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.0.3] - 2026-08-15
+
+Adopt tkwry 0.1.4 (navigation, create-failed, downloads).
+
 ### Changed
 
 - Require ``tkwry>=0.1.4``. Widget-shell navigation stays on the loopback
