@@ -128,9 +128,9 @@ def test_mount_directory_serves_nested_file_and_rejects_traversal(tmp_path):
 
     from tkipw.html_host import get_html_host
 
-    (tmp_path / "index.js").write_text("ok();\n", encoding="utf-8")
+    (tmp_path / "index.js").write_bytes(b"ok();\n")
     secret = tmp_path.parent / "secret.txt"
-    secret.write_text("nope\n", encoding="utf-8")
+    secret.write_bytes(b"nope\n")
     host = get_html_host()
     base = host.mount_directory(tmp_path)
     try:
