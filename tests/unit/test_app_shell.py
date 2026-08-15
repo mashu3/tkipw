@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from urllib.request import urlopen
 
 from tkipw.app import _load_shell_html, _shell_bridge_origin, _shell_document_url
@@ -40,7 +41,37 @@ def test_shell_document_url_serves_runtime_over_loopback():
     with urlopen(js_url, timeout=5) as resp:  # noqa: S310
         js = resp.read()
     assert len(css) > 1000
-    assert len(js) > 100_000
+    assert len(js) > 50_000
+
+
+def test_shell_document_url_serves_lazy_widget_packs():
+    url = _shell_document_url()
+    with urlopen(url, timeout=5) as resp:  # noqa: S310
+        body = resp.read().decode("utf-8")
+    assert "window.__tkipwPackUrls=" in body
+    assert "__PACK_URLS__" not in body
+
+    marker = "window.__tkipwPackUrls="
+    start = body.index(marker) + len(marker)
+    packs, _end = json.JSONDecoder().raw_decode(body, start)
+    for pack_id in ("leaflet", "ipycanvas", "bqplot", "ipympl"):
+        assert pack_id in packs
+        js_url = packs[pack_id]["js"]
+        assert js_url.startswith("http://127.0.0.1:")
+        assert f"pack-{pack_id}.js" in js_url
+        with urlopen(js_url, timeout=5) as resp:  # noqa: S310
+            pack_js = resp.read()
+        assert len(pack_js) > 1_000
+        assert b"__tkipwRegisterPack" in pack_js
+
+
+def test_load_shell_html_bakes_empty_pack_urls_by_default():
+    html = _load_shell_html(
+        runtime_js_url="http://127.0.0.1/runtime.js",
+        runtime_css_url="http://127.0.0.1/runtime.css",
+    )
+    assert "window.__tkipwPackUrls={}" in html
+    assert "__PACK_URLS__" not in html
 
 
 def test_shell_bridge_origin_matches_document_host():

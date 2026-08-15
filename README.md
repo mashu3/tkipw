@@ -44,15 +44,16 @@ WebView that lives *inside* a Tk `Frame` (via tkwry's child-window embedding).
 * [tkwry](https://github.com/mashu3/tkwry) 0.1.4+ (system WebView: WebView2 on Windows, WKWebView on macOS, WebKitGTK on Linux — see tkwry's platform notes)
 * [ipywidgets](https://github.com/jupyter-widgets/ipywidgets) 8.x
 
-The bundled widget runtime is inlined into the shell HTML. The Playground's
-Monaco editor and standalone Altair / Bokeh documents load their JavaScript
-libraries from a CDN.
+The widget core (``runtime.js``) is hosted over loopback; leaflet / ipycanvas /
+bqplot / ipympl packs are fetched the first time a matching widget loads. The
+Playground's Monaco editor and standalone Altair / Bokeh documents load their
+JavaScript libraries from a CDN.
 
 ### Bundled front-end dependencies
 
 The widget front end is prebuilt from `js/` with esbuild into
-`src/tkipw/html/runtime.{js,css}` and shipped inside the wheel (built in CI, not
-committed to the repo). It embeds:
+`src/tkipw/html/runtime.{js,css}` plus lazy `pack-*.{js,css}` files and shipped
+inside the wheel (built in CI, not committed to the repo). It embeds:
 
 * **Jupyter Widgets** (`@jupyter-widgets/*`) and **Lumino** — BSD-3-Clause
 * **anywidget**, **jupyter-leaflet**, **jQuery**, **Backbone.js** — MIT
@@ -300,8 +301,9 @@ Built-ins:
 ## 🏗️ Architecture
 
 * **Python** — `comm.create_comm` → `TkwryComm`; official ipywidgets messages sent as JSON (+base64 buffers)
-* **JS** — `@jupyter-widgets/html-manager` + `window.ipc`, with anywidget,
-  jupyter-leaflet, ipycanvas, bqplot/bqscales, and jupyter-matplotlib bundled in
+* **JS** — `@jupyter-widgets/html-manager` + `window.ipc` in `runtime.js`;
+  leaflet, ipycanvas, bqplot/bqscales, and jupyter-matplotlib load as packs
+  on first use
 * **Bridge** — a stack of active `App`s; the top receives new comm traffic
 * **Navigation** — the widget shell stays on loopback; other loopback ports
   (PyVista trame) stay in the WebView; public http(s) links open in the

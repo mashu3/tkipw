@@ -17,8 +17,8 @@ from urllib.parse import quote
 
 from .html_host import get_html_host
 
-# Names already provided by the bundled ``runtime.js``. Overriding them would
-# split ``@jupyter-widgets/base`` across two copies and break Comm.
+# Names already provided by the bundled runtime (core or lazy packs).
+# Overriding them would split ``@jupyter-widgets/base`` or duplicate a pack.
 _RESERVED_MODULE_NAMES = frozenset(
     {
         "@jupyter-widgets/base",

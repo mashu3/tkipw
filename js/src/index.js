@@ -4,121 +4,10 @@
 import { HTMLManager } from "@jupyter-widgets/html-manager";
 import * as base from "@jupyter-widgets/base";
 import * as controls from "@jupyter-widgets/controls";
-import * as jupyterLeaflet from "jupyter-leaflet";
-import * as ipycanvas from "ipycanvas";
-import * as bqplot from "bqplot";
-import * as bqscales from "bqscales";
-import * as jupyterMatplotlib from "jupyter-matplotlib";
 
 // CSS for ipywidgets 8 controls
 import "@jupyter-widgets/controls/css/widgets-base.css";
 import "@jupyter-widgets/controls/css/labvariables.css";
-import "bqplot/css/bqplot.css";
-import "jupyter-matplotlib/css/mpl_widget.css";
-
-// ipympl's MPLCanvasView.remove() only drops window listeners and skips
-// ``super.remove()``, so clearing an Output leaves orphaned figure DOM
-// (inline runs then look empty / stacked). Restore Lumino/DOM teardown.
-(function patchIpymplCanvasRemove() {
-  const View = jupyterMatplotlib.MPLCanvasView;
-  if (!View || View.prototype.__tkipwPatchedRemove) return;
-  const mplRemove = View.prototype.remove;
-  View.prototype.remove = function tkipwMplCanvasRemove() {
-    if (this.__tkipwRemoving) {
-      return this;
-    }
-    this.__tkipwRemoving = true;
-    try {
-      if (this.__tkipwFitRO) {
-        try {
-          this.__tkipwFitRO.disconnect();
-        } catch (e) {
-          /* ignore */
-        }
-        this.__tkipwFitRO = null;
-      }
-      if (typeof mplRemove === "function") {
-        mplRemove.apply(this, arguments);
-      }
-      try {
-        return base.DOMWidgetView.prototype.remove.call(this);
-      } catch (e) {
-        if (this.el && this.el.parentNode) {
-          this.el.remove();
-        }
-        return this;
-      }
-    } finally {
-      this.__tkipwRemoving = false;
-    }
-  };
-  View.prototype.__tkipwPatchedRemove = true;
-})();
-
-// Inline panes are often narrower than figsize pixels. Shrink via ipympl's
-// own resize() so the bitmap matches the pane (CSS max-width would clip the
-// absolutely-positioned canvas). Compact pop-ups are already sized to the
-// figure — skip them.
-(function patchIpymplFitWidth() {
-  const View = jupyterMatplotlib.MPLCanvasView;
-  if (!View || View.prototype.__tkipwPatchedFit) return;
-  const mplRender = View.prototype.render;
-
-  function hostWidth() {
-    const host = document.getElementById("tkipw-widgets");
-    return host ? Math.floor(host.clientWidth) : 0;
-  }
-
-  function fitIpymplView(view) {
-    try {
-      if (!view || !view.model || !view.el) return;
-      if (document.body.classList.contains("tkipw-compact")) return;
-      if (view.__tkipwFitting) return;
-      const avail = hostWidth();
-      if (avail < 64) return;
-      const size = view.model.get("_size");
-      if (!size || size[0] < 1 || size[1] < 1) return;
-      if (size[0] <= avail + 1) return;
-      view.__tkipwFitting = true;
-      const height = Math.max(Math.round((size[1] * avail) / size[0]), 48);
-      view.model.resize(avail, height);
-      setTimeout(() => {
-        view.__tkipwFitting = false;
-      }, 150);
-    } catch (e) {
-      if (view) view.__tkipwFitting = false;
-    }
-  }
-
-  function scheduleFit(view) {
-    const run = () => fitIpymplView(view);
-    requestAnimationFrame(() => {
-      run();
-      setTimeout(run, 80);
-      setTimeout(run, 300);
-    });
-    // Do not hook change:_size — resize() updates _size and would loop.
-    if (typeof ResizeObserver !== "undefined" && !view.__tkipwFitRO) {
-      const host = document.getElementById("tkipw-widgets");
-      if (host) {
-        let timer = null;
-        view.__tkipwFitRO = new ResizeObserver(() => {
-          clearTimeout(timer);
-          timer = setTimeout(run, 50);
-        });
-        view.__tkipwFitRO.observe(host);
-      }
-    }
-  }
-
-  View.prototype.render = function tkipwMplCanvasRender() {
-    const result = mplRender.apply(this, arguments);
-    const done = () => scheduleFit(this);
-    Promise.resolve(result).then(done, done);
-    return result;
-  };
-  View.prototype.__tkipwPatchedFit = true;
-})();
 
 // anywidget factory (AMD → ESM via build plugin)
 import anywidgetFactory from "anywidget";
@@ -128,7 +17,22 @@ const anywidgetMod =
     ? anywidgetFactory(base)
     : anywidgetFactory;
 
-function lookupBundled(moduleName) {
+window.__tkipwBase = base;
+window.__tkipwPackExports = window.__tkipwPackExports || {};
+window.__tkipwRegisterPack = function tkipwRegisterPack(name, exports) {
+  window.__tkipwPackExports[name] = exports;
+};
+
+const PACK_FOR_MODULE = {
+  "jupyter-leaflet": "leaflet",
+  ipycanvas: "ipycanvas",
+  bqplot: "bqplot",
+  bqscales: "bqplot",
+  "jupyter-matplotlib": "ipympl",
+};
+const packPromises = {};
+
+function lookupLoaded(moduleName) {
   switch (moduleName) {
     case "@jupyter-widgets/base":
     case "jupyter-js-widgets":
@@ -137,19 +41,60 @@ function lookupBundled(moduleName) {
       return controls;
     case "anywidget":
       return anywidgetMod;
-    case "jupyter-leaflet":
-      return jupyterLeaflet;
-    case "ipycanvas":
-      return ipycanvas;
-    case "bqplot":
-      return bqplot;
-    case "bqscales":
-      return bqscales;
-    case "jupyter-matplotlib":
-      return jupyterMatplotlib;
     default:
-      return undefined;
+      return (window.__tkipwPackExports || {})[moduleName];
   }
+}
+
+function loadPackScript(url) {
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = url;
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error(`Failed to load widget pack: ${url}`));
+    document.head.appendChild(script);
+  });
+}
+
+function ensurePack(packId) {
+  if (packPromises[packId]) {
+    return packPromises[packId];
+  }
+  const urls = (window.__tkipwPackUrls || {})[packId];
+  if (!urls || !urls.js) {
+    return Promise.reject(new Error(`Unknown widget pack: ${packId}`));
+  }
+  packPromises[packId] = Promise.resolve()
+    .then(() => {
+      if (urls.css) {
+        injectWidgetStyles({ [packId]: { style: urls.css } });
+      }
+      return loadPackScript(urls.js);
+    })
+    .catch((err) => {
+      delete packPromises[packId];
+      throw err;
+    });
+  return packPromises[packId];
+}
+
+function loadBundledModule(moduleName) {
+  const loaded = lookupLoaded(moduleName);
+  if (loaded) {
+    return Promise.resolve(loaded);
+  }
+  const packId = PACK_FOR_MODULE[moduleName];
+  if (!packId) {
+    return Promise.reject(new Error(`Unknown widget module: ${moduleName}`));
+  }
+  return ensurePack(packId).then(() => {
+    const mod = lookupLoaded(moduleName);
+    if (!mod) {
+      throw new Error(`Pack ${packId} did not register ${moduleName}`);
+    }
+    return mod;
+  });
 }
 
 const amdLoads = new Map();
@@ -158,7 +103,7 @@ let lastAmdModule;
 let lastAmdName;
 
 function resolveAmdDep(id) {
-  const bundled = lookupBundled(id);
+  const bundled = lookupLoaded(id);
   if (bundled !== undefined) {
     return bundled;
   }
@@ -532,11 +477,9 @@ class TkipwManager extends HTMLManager {
   constructor(el) {
     super({
       loader: (moduleName) => {
-        const bundled = lookupBundled(moduleName);
-        if (bundled) {
-          return Promise.resolve(bundled);
-        }
-        return loadRegisteredAmd(moduleName);
+        return loadBundledModule(moduleName).catch(() =>
+          loadRegisteredAmd(moduleName)
+        );
       },
     });
     this.el = el;
@@ -550,9 +493,12 @@ class TkipwManager extends HTMLManager {
   loadClass(className, moduleName, moduleVersion) {
     return Promise.resolve()
       .then(() => {
-        const bundled = lookupBundled(moduleName);
-        if (bundled) {
-          return bundled;
+        const loaded = lookupLoaded(moduleName);
+        if (loaded) {
+          return loaded;
+        }
+        if (PACK_FOR_MODULE[moduleName]) {
+          return loadBundledModule(moduleName);
         }
         return loadRegisteredAmd(moduleName);
       })

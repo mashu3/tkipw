@@ -23,10 +23,16 @@ def test_collect_report_runtime_assets_present():
     shell = {line.name: line for line in report.shell}
     assert shell["runtime.js"].ok
     assert shell["runtime.css"].ok
+    assert shell["pack-leaflet.js"].ok
+    assert shell["pack-ipycanvas.js"].ok
+    assert shell["pack-bqplot.js"].ok
+    assert shell["pack-ipympl.js"].ok
     assert report.ok
     widgets = {line.name: line for line in report.widgets}
     assert widgets["anywidget"].ok
+    assert widgets["anywidget"].detail == "core"
     assert widgets["jupyter-leaflet"].ok
+    assert widgets["jupyter-leaflet"].detail == "lazy pack"
 
 
 def test_missing_runtime_fails_report(tmp_path: Path):
@@ -35,6 +41,9 @@ def test_missing_runtime_fails_report(tmp_path: Path):
     shell = {line.name: line for line in report.shell}
     assert not shell["runtime.js"].ok
     assert "missing" in shell["runtime.js"].detail
+    assert not shell["pack-leaflet.js"].ok
+    widgets = {line.name: line for line in report.widgets}
+    assert not widgets["jupyter-leaflet"].ok
 
 
 def test_format_contains_sections():
@@ -44,6 +53,7 @@ def test_format_contains_sections():
     assert "\nShell\n" in text
     assert "\nWidget runtime\n" in text
     assert "jupyter-matplotlib" in text
+    assert "pack-leaflet.js" in text
 
 
 def test_doctor_lists_classic_nbextensions(tmp_path, monkeypatch):

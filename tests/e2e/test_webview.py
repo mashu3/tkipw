@@ -9,8 +9,9 @@ They need a display and a native WebView, so they are opt-in:
     TKIPW_E2E=1 pytest tests/e2e
 
 On CI this runs under Xvfb (Linux) / the system WebView (macOS). No network is
-required for the core runtime — ``runtime.js`` is bundled and inlined into the
-shell HTML. Extension suites may still pull CDN assets inside hosted iframes.
+required for the core runtime — ``runtime.js`` and lazy widget packs are
+served from the loopback HTML host. Extension suites may still pull CDN
+assets inside hosted iframes.
 """
 
 from __future__ import annotations

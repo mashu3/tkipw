@@ -35,6 +35,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   trame uses a different port than the HTML host). Public http(s) still opens
   in the system browser. Trame launch pumps Tk so tkwry ``on_navigation``
   cannot deadlock the host.
+- Leaflet, ipycanvas, bqplot, and ipympl load as separate JS packs on first
+  use (core ``runtime.js`` keeps html-manager, controls, and anywidget)
 
 ## [0.0.3] - 2026-08-15
 

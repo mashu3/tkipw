@@ -84,12 +84,15 @@ ignore = ["UP045"]
 [tool.hatch.version]
 path = "src/tkipw/__init__.py"
 
-# runtime.js / runtime.css are built by `npm run build` (js/) in CI and are
-# git-ignored, so list them as artifacts to force their inclusion in builds.
+# runtime.js / runtime.css / pack-*.{js,css} are built by `npm run build`
+# (js/) in CI and are git-ignored, so list them as artifacts to force their
+# inclusion in builds.
 [tool.hatch.build]
 artifacts = [
   "src/tkipw/html/runtime.js",
   "src/tkipw/html/runtime.css",
+  "src/tkipw/html/pack-*.js",
+  "src/tkipw/html/pack-*.css",
 ]
 
 [tool.hatch.build.targets.wheel]

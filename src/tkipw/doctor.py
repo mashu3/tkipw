@@ -31,15 +31,23 @@ _OPTIONAL_PACKAGES = (
     "bqplot",
     "ipympl",
 )
-_BUNDLED_WIDGET_MODULES = (
+_CORE_WIDGET_MODULES = (
     "@jupyter-widgets/base",
     "@jupyter-widgets/controls",
     "anywidget",
-    "jupyter-leaflet",
-    "ipycanvas",
-    "bqplot",
-    "bqscales",
-    "jupyter-matplotlib",
+)
+_WIDGET_PACK_ASSETS = (
+    "pack-leaflet.js",
+    "pack-ipycanvas.js",
+    "pack-bqplot.js",
+    "pack-ipympl.js",
+)
+_PACK_WIDGET_MODULES = (
+    ("jupyter-leaflet", "pack-leaflet.js"),
+    ("ipycanvas", "pack-ipycanvas.js"),
+    ("bqplot", "pack-bqplot.js"),
+    ("bqscales", "pack-bqplot.js"),
+    ("jupyter-matplotlib", "pack-ipympl.js"),
 )
 
 
@@ -88,21 +96,27 @@ class DoctorReport:
 def collect_report(*, html_dir: Path | None = None) -> DoctorReport:
     """Gather diagnostics without creating a WebView."""
     root = html_dir if html_dir is not None else _HTML_DIR
-    js_ok, js_detail = _asset_status(root / "runtime.js", min_bytes=100_000)
+    js_ok, js_detail = _asset_status(root / "runtime.js", min_bytes=50_000)
     css_ok, css_detail = _asset_status(root / "runtime.css", min_bytes=100)
-    bundled_ok = js_ok
-    bundled_detail = "bundled" if bundled_ok else "runtime.js missing"
+    shell = [
+        DoctorLine("runtime.js", js_detail, js_ok),
+        DoctorLine("runtime.css", css_detail, css_ok),
+    ]
+    for name in _WIDGET_PACK_ASSETS:
+        ok, detail = _asset_status(root / name, min_bytes=1_000)
+        shell.append(DoctorLine(name, detail, ok))
+    widgets = [
+        DoctorLine(name, "core" if js_ok else "runtime.js missing", js_ok)
+        for name in _CORE_WIDGET_MODULES
+    ]
+    for name, pack_file in _PACK_WIDGET_MODULES:
+        ok, detail = _asset_status(root / pack_file, min_bytes=1_000)
+        widgets.append(DoctorLine(name, "lazy pack" if ok else detail, ok))
     return DoctorReport(
         packages=[_package_line(name, required=True) for name in _REQUIRED_PACKAGES],
         webview=_webview_line(),
-        shell=[
-            DoctorLine("runtime.js", js_detail, js_ok),
-            DoctorLine("runtime.css", css_detail, css_ok),
-        ],
-        widgets=[
-            DoctorLine(name, bundled_detail, bundled_ok)
-            for name in _BUNDLED_WIDGET_MODULES
-        ],
+        shell=shell,
+        widgets=widgets,
         extras=[_package_line(name, required=False) for name in _OPTIONAL_PACKAGES],
         nbextensions=_nbextension_lines(),
     )

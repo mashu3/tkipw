@@ -106,7 +106,7 @@ _SHELL = """\
   __BOOT_PROFILE_HEAD__
   <link rel="stylesheet" href="__RUNTIME_CSS_URL__" __CSS_ONLOAD__ />
   <style>__CSS__</style>
-  <script>window.__tkipwWidgetModules=__WIDGET_MODULES__;</script>
+  <script>window.__tkipwWidgetModules=__WIDGET_MODULES__;window.__tkipwPackUrls=__PACK_URLS__;</script>
 </head>
 <body>
   <div id="tkipw-root">
@@ -666,6 +666,36 @@ body.tkipw-compact img.tkipw-raster {
 
 """
 
+# Lazy widget packs: served from html/ when a matching module is first loaded.
+# (js_name, css_name) live next to runtime.js after ``npm run build``.
+_WIDGET_PACKS: tuple[tuple[str, str, str], ...] = (
+    ("leaflet", "pack-leaflet.js", "pack-leaflet.css"),
+    ("ipycanvas", "pack-ipycanvas.js", "pack-ipycanvas.css"),
+    ("bqplot", "pack-bqplot.js", "pack-bqplot.css"),
+    ("ipympl", "pack-ipympl.js", "pack-ipympl.css"),
+)
+
+
+def _widget_pack_urls(host: Any) -> dict[str, dict[str, str]]:
+    """Loopback URLs for lazy widget packs (fetched on first ``loadClass``)."""
+    base = host.mount_directory(_HTML_DIR)
+    urls: dict[str, dict[str, str]] = {}
+    for pack_id, js_name, css_name in _WIDGET_PACKS:
+        js_path = _HTML_DIR / js_name
+        if not js_path.is_file():
+            continue
+        spec: dict[str, str] = {"js": f"{base}{js_name}"}
+        css_path = _HTML_DIR / css_name
+        if css_path.is_file() and css_path.stat().st_size > 64:
+            spec["css"] = f"{base}{css_name}"
+        urls[pack_id] = spec
+    return urls
+
+
+def _pack_urls_js(pack_urls: Mapping[str, Mapping[str, str]] | None) -> str:
+    payload = json.dumps(pack_urls or {}, separators=(",", ":"), ensure_ascii=True)
+    return payload.replace("<", "\\u003c")
+
 
 def _load_shell_html(
     *,
@@ -673,11 +703,14 @@ def _load_shell_html(
     theme: str = "light",
     runtime_js_url: str = "",
     runtime_css_url: str = "",
+    pack_urls: Mapping[str, Mapping[str, str]] | None = None,
 ) -> str:
     """Build the widget shell HTML.
 
     ``runtime_js_url`` / ``runtime_css_url`` point at loopback-hosted assets so
     the document stays small (WebViews struggle with multi-MB inline scripts).
+    Pack URLs are JSON baked into ``window.__tkipwPackUrls``; the WebView
+    fetches them only when a matching widget class loads.
     """
     runtime = _HTML_DIR / "runtime.js"
     if not runtime.exists():
@@ -696,6 +729,7 @@ def _load_shell_html(
         .replace("__RUNTIME_JS_URL__", runtime_js_url)
         .replace("__RUNTIME_CSS_URL__", runtime_css_url)
         .replace("__WIDGET_MODULES__", widget_modules_js())
+        .replace("__PACK_URLS__", _pack_urls_js(pack_urls))
         .replace(
             "__BOOT_PROFILE_HEAD__",
             _BOOT_PROFILE_HEAD if profile else "",
@@ -847,6 +881,8 @@ def _shell_document_url(*, compact: bool = False, theme: str = "light") -> str:
     over ``url=``, inlining the full runtime as a ``<script>`` body can fail to
     evaluate once the bundle grows (bqplot / leaflet / …). Host ``runtime.js``
     / ``runtime.css`` as separate loopback assets and keep the HTML small.
+    Leaflet / ipycanvas / bqplot / ipympl live in sibling pack files and are
+    fetched from the same html/ directory only when a widget class needs them.
     """
     from .html_host import get_html_host
     from .widget_modules import discover_widget_modules
@@ -869,6 +905,7 @@ def _shell_document_url(*, compact: bool = False, theme: str = "light") -> str:
         content_type="text/css; charset=utf-8",
         suffix=".css",
     )
+    pack_urls = _widget_pack_urls(host)
     _profile_mark("shell:mount assets done")
     url = host.mount(
         _load_shell_html(
@@ -876,6 +913,7 @@ def _shell_document_url(*, compact: bool = False, theme: str = "light") -> str:
             theme=theme,
             runtime_js_url=js_url,
             runtime_css_url=css_url,
+            pack_urls=pack_urls,
         )
     )
     _profile_mark("shell:mount html done")
