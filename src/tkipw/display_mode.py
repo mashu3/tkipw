@@ -303,7 +303,10 @@ def open_display_window(
 
     if cloaked:
         # Reveal after runtime ready + outbound flush (see App.when_ready).
+        # Create-failed never reaches when_ready — still uncloak so the
+        # pop-up is not stuck invisible.
         popup.when_ready(lambda: _reveal_window(top))
+        popup.when_failed(lambda _exc: _reveal_window(top))
 
     # Keep the host App as the active bridge for the next display()/show().
     host.activate()

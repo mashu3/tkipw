@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from urllib.request import urlopen
 
-from tkipw.app import _load_shell_html, _shell_document_url
+from tkipw.app import _load_shell_html, _shell_bridge_origin, _shell_document_url
 
 # WebView2 NavigateToString rejects HTML larger than this (UTF-16-ish bound;
 # we treat UTF-8 byte length as a conservative stand-in).
@@ -41,6 +41,13 @@ def test_shell_document_url_serves_runtime_over_loopback():
         js = resp.read()
     assert len(css) > 1000
     assert len(js) > 100_000
+
+
+def test_shell_bridge_origin_matches_document_host():
+    url = _shell_document_url()
+    origin = _shell_bridge_origin()
+    assert origin.startswith("http://127.0.0.1:")
+    assert url.startswith(origin + "/")
 
 
 def test_shell_html_bakes_theme_attribute():

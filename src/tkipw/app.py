@@ -876,6 +876,44 @@ def _shell_document_url(*, compact: bool = False, theme: str = "light") -> str:
     return url
 
 
+def _shell_bridge_origin() -> str:
+    """Origin of the process-local HTML host (IPC / in-webview navigation)."""
+    from .html_host import get_html_host
+
+    return f"http://127.0.0.1:{get_html_host().port}"
+
+
+def _suggested_download_filename(*candidates: object) -> str:
+    """Pick a basename from *candidates*, ignoring empty / path-escape names."""
+    for raw in candidates:
+        if not isinstance(raw, str) or not raw:
+            continue
+        name = Path(raw).name
+        if name and name not in {".", ".."}:
+            return name
+    return "download"
+
+
+def _ask_save_as(root: tk.Misc, filename: str) -> str:
+    """Show a Save dialog and return an absolute path, or empty on cancel."""
+    filename = _suggested_download_filename(filename)
+    suffix = Path(filename).suffix
+    filetypes: list[tuple[str, str]] = [("All files", "*.*")]
+    if suffix:
+        filetypes.insert(0, (f"{suffix.lstrip('.').upper()} files", f"*{suffix}"))
+    try:
+        path = filedialog.asksaveasfilename(
+            parent=root,
+            title="Save",
+            initialfile=filename,
+            defaultextension=suffix or "",
+            filetypes=filetypes,
+        )
+    except Exception:
+        return ""
+    return path or ""
+
+
 class App:
     """Host ipywidgets / anywidget UIs inside a tkwry WebView.
 
@@ -915,6 +953,9 @@ class App:
         )
         self._ready = False
         self._ready_callbacks: list[Callable[[], None]] = []
+        self._creation_failed = False
+        self._creation_error: BaseException | None = None
+        self._failed_callbacks: list[Callable[[BaseException], None]] = []
         self._destroyed = False
         self._outbound: list[dict[str, Any]] = []
         self._known_model_ids: set[str] = set()
@@ -973,15 +1014,21 @@ class App:
         # Explicit size: tkwry can create + Navigate while the host is still
         # hidden (tklab output pane starts with paned ``hide=True``). Without
         # this, initial load waits until the pane is first shown → cold Run.
+        # Stay on the loopback host; off-list http(s) opens in the system
+        # browser (do not pass a custom on_navigation — it replaces this).
         _profile_mark("WebView()… (incl. shell URL + may pump native create)")
+        shell_url = _shell_document_url(compact=compact, theme=self.theme)
         self.webview = WebView(
             self._frame,
-            url=_shell_document_url(compact=compact, theme=self.theme),
+            url=shell_url,
             width=640,
             height=480,
             ipc_handler=self._on_ipc,
             on_page_load=self._on_page_load,
-            on_navigation=lambda _url: True,
+            navigation_allow=[_shell_bridge_origin()],
+            open_external=True,
+            on_download=self._on_native_download,
+            on_creation_failed=self._on_webview_create_failed,
             devtools=devtools,
             background_color=bg_rgba,
         )
@@ -1132,14 +1179,11 @@ class App:
     def _handle_download_from_js(self, msg: dict[str, Any]) -> None:
         """Persist a WebView ``<a download>`` payload via a native save dialog.
 
-        Desktop WebViews do not implement browser downloads; bqplot's Save
-        toolbar (and similar) create a data-URL anchor and click it. The JS
-        bridge posts the bytes here instead.
+        ``data:`` / ``blob:`` anchors never reach wry's download API (bqplot
+        toolbar Save and similar). HTTP(S) files go through
+        :meth:`_on_native_download` instead.
         """
-        filename = msg.get("filename") or "download"
-        if not isinstance(filename, str):
-            filename = "download"
-        filename = Path(filename).name or "download"
+        filename = _suggested_download_filename(msg.get("filename"))
         raw_b64 = msg.get("data_base64") or ""
         if not isinstance(raw_b64, str) or not raw_b64:
             return
@@ -1150,21 +1194,10 @@ class App:
         if not data:
             return
 
-        suffix = Path(filename).suffix
-        filetypes: list[tuple[str, str]] = [("All files", "*.*")]
-        if suffix:
-            filetypes.insert(0, (f"{suffix.lstrip('.').upper()} files", f"*{suffix}"))
-
         def _save() -> None:
             if self._destroyed:
                 return
-            path = filedialog.asksaveasfilename(
-                parent=self.root,
-                title="Save",
-                initialfile=filename,
-                defaultextension=suffix or "",
-                filetypes=filetypes,
-            )
+            path = _ask_save_as(self.root, filename)
             if not path:
                 return
             try:
@@ -1177,6 +1210,32 @@ class App:
         except Exception:
             _save()
 
+    def _on_native_download(self, url: str, dest: str) -> str | bool:
+        """Route wry HTTP(S) downloads through the same Save dialog.
+
+        Runs on the Tk thread while WebKit waits; return an absolute path or
+        ``False`` to cancel. Relative dests are denied by tkwry.
+        """
+        if self._destroyed:
+            return False
+        from urllib.parse import unquote, urlparse
+
+        suggested = _suggested_download_filename(dest, unquote(urlparse(url).path))
+        path = _ask_save_as(self.root, suggested)
+        return path if path else False
+
+    def _on_webview_create_failed(self, exc: BaseException) -> None:
+        """Native create failed; constructor does not raise (tkwry 0.1.4)."""
+        if self._destroyed:
+            return
+        self._creation_failed = True
+        self._creation_error = exc
+        print(f"[tkipw] WebView creation failed: {exc}", file=sys.stderr)
+        callbacks = self._failed_callbacks
+        self._failed_callbacks = []
+        for callback in callbacks:
+            self._schedule_failed_callback(callback, exc)
+
     def when_ready(self, callback: Callable[[], None]) -> None:
         """Run *callback* once the widget runtime has booted (and after flush)."""
         if self._destroyed:
@@ -1185,6 +1244,21 @@ class App:
             self._schedule_ready_callback(callback)
             return
         self._ready_callbacks.append(callback)
+
+    def when_failed(self, callback: Callable[[BaseException], None]) -> None:
+        """Run *callback* once native WebView creation is permanently abandoned.
+
+        Complements :meth:`when_ready`. The constructor does not raise when
+        create fails (missing WebView2, retries exhausted, …).
+        """
+        if self._destroyed:
+            return
+        if self._creation_failed:
+            err = self._creation_error
+            if err is not None:
+                self._schedule_failed_callback(callback, err)
+            return
+        self._failed_callbacks.append(callback)
 
     def _fire_ready_callbacks(self) -> None:
         callbacks = self._ready_callbacks
@@ -1202,6 +1276,24 @@ class App:
                 callback()
             except Exception:
                 pass
+
+    def _schedule_failed_callback(
+        self,
+        callback: Callable[[BaseException], None],
+        exc: BaseException,
+    ) -> None:
+        def _run() -> None:
+            if self._destroyed:
+                return
+            try:
+                callback(exc)
+            except Exception:
+                pass
+
+        try:
+            self.root.after_idle(_run)
+        except Exception:
+            _run()
 
     def _handle_comm_from_js(self, msg: dict[str, Any]) -> None:
         msg_type = msg.get("msg_type")
@@ -1368,6 +1460,7 @@ class App:
 
         self._ready = False
         self._ready_callbacks.clear()
+        self._failed_callbacks.clear()
         self._outbound.clear()
         self._flush_scheduled = False
         if self._flush_after_id is not None:

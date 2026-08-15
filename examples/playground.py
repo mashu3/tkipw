@@ -1475,11 +1475,17 @@ class Playground:
             self._status_frame,
             html=_status_html(),
             ipc_handler=self._on_status_ipc,
+            on_creation_failed=lambda exc: self._on_webview_create_failed(
+                "status", exc
+            ),
         )
         self._editor: WebView | None = WebView(
             left,
             html=_editor_html(initial_tabs),
             ipc_handler=self._on_editor_ipc,
+            on_creation_failed=lambda exc: self._on_webview_create_failed(
+                "editor", exc
+            ),
         )
 
         self._results = StackedOutput()
@@ -1970,6 +1976,16 @@ class Playground:
         try:
             self.root.destroy()
         except tk.TclError:
+            pass
+
+    def _on_webview_create_failed(self, name: str, exc: BaseException) -> None:
+        print(
+            f"[tkipw playground] {name} WebView creation failed: {exc}",
+            file=sys.stderr,
+        )
+        try:
+            self._set_status(f"{name} failed to start")
+        except Exception:
             pass
 
     @staticmethod

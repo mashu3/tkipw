@@ -41,7 +41,7 @@ WebView that lives *inside* a Tk `Frame` (via tkwry's child-window embedding).
 ## 🔧 Requirements
 
 * Python 3.10+
-* [tkwry](https://github.com/mashu3/tkwry) (system WebView: WebView2 on Windows, WKWebView on macOS, WebKitGTK on Linux — see tkwry's platform notes)
+* [tkwry](https://github.com/mashu3/tkwry) 0.1.4+ (system WebView: WebView2 on Windows, WKWebView on macOS, WebKitGTK on Linux — see tkwry's platform notes)
 * [ipywidgets](https://github.com/jupyter-widgets/ipywidgets) 8.x
 
 The bundled widget runtime is inlined into the shell HTML. The Playground's
@@ -253,8 +253,9 @@ Built-ins:
 * **ipycanvas** — bundled `ipycanvas` module renders live Canvas widgets;
   drawing commands and pointer events flow over the Comm bridge.
 * **bqplot** — bundled `bqplot` + `bqscales` modules render interactive SVG
-  figures; marks/scales/axes sync over the Comm bridge. Toolbar **Save** opens
-  a native file dialog (desktop WebViews do not honor `<a download>`).
+  figures; marks/scales/axes sync over the Comm bridge. Toolbar **Save**
+  (`data:` / `blob:`) opens a native file dialog; HTTP(S) files use tkwry
+  `on_download`.
 * **ipympl** — bundled `jupyter-matplotlib` module for interactive Matplotlib
   zoom/pan toolbars in the WebView (activated by ``import ipympl``).
 * **Pillow** — `Image.show()` → PNG via ``display()`` (inline pane or pop-up)
@@ -273,6 +274,8 @@ Built-ins:
 * **JS** — `@jupyter-widgets/html-manager` + `window.ipc`, with anywidget,
   jupyter-leaflet, ipycanvas, bqplot/bqscales, and jupyter-matplotlib bundled in
 * **Bridge** — a stack of active `App`s; the top receives new comm traffic
+* **Navigation** — the widget shell stays on the loopback host; other http(s)
+  links open in the system browser (tkwry `navigation_allow` / `open_external`)
 
 ---
 
@@ -296,6 +299,8 @@ avoid WebKitGTK hangs). See [`.github/workflows/ci.yml`](.github/workflows/ci.ym
   + ipycanvas + bqplot + ipympl; no kernel, `update_display`, or general dynamic
   third-party widget modules
 * **PyVista on macOS** — client-side rendering only (see extensions above)
+* **External links** — http(s) outside the loopback host open in the system
+  browser, not inside the widget WebView
 * **Platform behavior** — inherits tkwry's platform notes (macOS embedding, import order, Linux source build)
 
 ---

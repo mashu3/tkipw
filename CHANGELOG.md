@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- Require ``tkwry>=0.1.4``. Widget-shell navigation stays on the loopback
+  HTML host; other http(s) links open in the system browser
+  (``navigation_allow`` / ``open_external``). Native WebView create failures
+  are reported via ``App.when_failed`` (constructor still does not raise).
+  HTTP(S) downloads use tkwry ``on_download`` (``data:`` / ``blob:`` save
+  still goes through the JS bridge).
+
 ## [0.0.2] - 2026-07-22
 
 ### Added

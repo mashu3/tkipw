@@ -28,7 +28,7 @@ classifiers = [
   "Topic :: Software Development :: User Interfaces",
 ]
 dependencies = [
-  "tkwry>=0.1.0",
+  "tkwry>=0.1.4",
   "tkface>=0.2.1",
   "ipywidgets>=8.0,<9",
   "comm>=0.2",
