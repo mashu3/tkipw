@@ -12,6 +12,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   ``application/json`` (SVG is preferred over PNG when both are present)
 - Honor IPython ``_repr_svg_`` / ``_repr_png_`` / ``_repr_jpeg_`` /
   ``_repr_json_`` when no richer MIME bundle is present
+- ``register_mime_renderer`` / ``unregister_mime_renderer`` for extra
+  ``_repr_mimebundle_`` types (HTML / Markdown still win; custom types beat
+  JSON / plain text)
 - ``WidgetFrame`` — a ``tk.Frame`` you pack yourself; ``App`` now subclasses it
   and still auto-packs (including ``parent=``)
 - ``display(..., display_id=True)`` returns a ``DisplayHandle``; ``update()`` /

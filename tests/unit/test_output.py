@@ -22,11 +22,13 @@ from tkipw.output import (
     error_html,
     install_display_logging,
     install_excepthook,
+    register_mime_renderer,
     render_html,
     stream_context,
     to_widget,
     uninstall_display_logging,
     uninstall_excepthook,
+    unregister_mime_renderer,
     update_display,
 )
 
@@ -149,6 +151,80 @@ class TestRenderHtml:
         html = render_html(Both())
         assert html == "<b>html</b>"
         assert "image/png" not in html
+
+    def test_register_mime_renderer_beats_json_and_plain(self):
+        register_mime_renderer(
+            "application/vnd.my-plot+json",
+            lambda raw: f'<div class="my-plot">{raw}</div>',
+        )
+        try:
+
+            class Plot:
+                def _repr_mimebundle_(self, include=None, exclude=None):
+                    return {
+                        "application/vnd.my-plot+json": "xyz",
+                        "application/json": {"n": 1},
+                        "text/plain": "plain",
+                    }
+
+            html = render_html(Plot())
+            assert 'class="my-plot"' in html
+            assert "xyz" in html
+            assert "plain" not in html
+            assert "tkipw-json" not in html
+        finally:
+            unregister_mime_renderer("application/vnd.my-plot+json")
+
+    def test_register_mime_renderer_html_still_wins(self):
+        register_mime_renderer(
+            "application/vnd.my-plot+json",
+            lambda raw: "CUSTOM",
+        )
+        try:
+
+            class Both:
+                def _repr_mimebundle_(self, include=None, exclude=None):
+                    return {
+                        "text/html": "<b>html</b>",
+                        "application/vnd.my-plot+json": "xyz",
+                    }
+
+            assert render_html(Both()) == "<b>html</b>"
+        finally:
+            unregister_mime_renderer("application/vnd.my-plot+json")
+
+    def test_mime_renderer_none_falls_through(self):
+        register_mime_renderer("application/vnd.skip+json", lambda raw: None)
+        try:
+
+            class Skip:
+                def _repr_mimebundle_(self, include=None, exclude=None):
+                    return {
+                        "application/vnd.skip+json": "ignored",
+                        "text/plain": "plain",
+                    }
+
+            html = render_html(Skip())
+            assert "plain" in html
+            assert "ignored" not in html
+        finally:
+            unregister_mime_renderer("application/vnd.skip+json")
+
+    def test_unregister_mime_renderer_restores_builtin(self):
+        class Plain:
+            def _repr_mimebundle_(self, include=None, exclude=None):
+                return {"text/plain": "hello"}
+
+        register_mime_renderer("text/plain", lambda raw: f"custom:{raw}")
+        try:
+            assert render_html(Plain()) == "custom:hello"
+        finally:
+            unregister_mime_renderer("text/plain")
+        assert "<pre>hello</pre>" in render_html(Plain())
+
+    def test_register_mime_renderer_rejects_empty(self):
+        with pytest.raises(ValueError, match="mime"):
+            register_mime_renderer("", lambda raw: str(raw))
 
     def test_error_html(self):
         html = error_html("ValueError: boom")

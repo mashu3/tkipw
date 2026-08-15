@@ -16,9 +16,12 @@ import logging
 import sys
 import traceback
 import uuid
-from collections.abc import Iterator
+from collections import OrderedDict
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from typing import Any
+
+MimeRenderer = Callable[[Any], str | None]
 
 # Stack of active output targets (``Output`` widgets). Empty → App default area.
 _output_stack: list[Any] = []
@@ -33,6 +36,19 @@ _OutputClass: type | None = None
 
 _ERROR_STYLE = "padding:8px 10px;border-radius:4px;overflow:auto;white-space:pre-wrap"
 _STDERR_STYLE = _ERROR_STYLE
+
+# Jupyter-like MIME preference. User-registered types sit after HTML/Markdown
+# and before raster/JSON/plain so a custom chart MIME wins over JSON dumps.
+_BUILTIN_MIME_BEFORE: tuple[str, ...] = ("text/html", "text/markdown")
+_BUILTIN_MIME_AFTER: tuple[str, ...] = (
+    "image/svg+xml",
+    "image/png",
+    "image/jpeg",
+    "application/json",
+    "text/plain",
+)
+_builtin_mime_renderers: dict[str, MimeRenderer] = {}
+_user_mime_renderers: OrderedDict[str, MimeRenderer] = OrderedDict()
 
 
 def _widgets() -> Any:
@@ -125,22 +141,76 @@ def _call_repr(obj: Any, name: str) -> Any | None:
         return None
 
 
+def register_mime_renderer(mime: str, renderer: MimeRenderer) -> None:
+    """Register a ``_repr_mimebundle_`` MIME type that returns an HTML fragment.
+
+    Built-in types keep their Jupyter-like priority; passing one replaces only
+    the callable. New types are tried after ``text/html`` / ``text/markdown``
+    and before images, JSON, and ``text/plain``. Return ``None`` to fall through.
+    """
+    key = _normalize_mime(mime)
+    if not callable(renderer):
+        raise TypeError("renderer must be callable")
+    _ensure_builtin_mime_renderers()
+    if key in _builtin_mime_renderers:
+        _builtin_mime_renderers[key] = renderer
+        return
+    _user_mime_renderers[key] = renderer
+
+
+def unregister_mime_renderer(mime: str) -> None:
+    """Drop a user MIME renderer, or restore a replaced built-in."""
+    key = _normalize_mime(mime)
+    _user_mime_renderers.pop(key, None)
+    if key in _BUILTIN_MIME_BEFORE or key in _BUILTIN_MIME_AFTER:
+        _ensure_builtin_mime_renderers()
+        _builtin_mime_renderers[key] = _default_builtin_mime_renderers()[key]
+
+
+def _normalize_mime(mime: str) -> str:
+    if not isinstance(mime, str) or not mime.strip():
+        raise ValueError("mime type must be a non-empty string")
+    return mime.strip()
+
+
+def _default_builtin_mime_renderers() -> dict[str, MimeRenderer]:
+    return {
+        "text/html": lambda raw: str(raw),
+        "text/markdown": lambda raw: _render_markdown(str(raw)),
+        "image/svg+xml": _render_svg,
+        "image/png": lambda raw: _render_raster("image/png", raw),
+        "image/jpeg": lambda raw: _render_raster("image/jpeg", raw),
+        "application/json": _render_json,
+        "text/plain": lambda raw: f"<pre>{_escape(str(raw))}</pre>",
+    }
+
+
+def _ensure_builtin_mime_renderers() -> None:
+    if _builtin_mime_renderers:
+        return
+    _builtin_mime_renderers.update(_default_builtin_mime_renderers())
+
+
+def _iter_mime_renderers() -> Iterator[tuple[str, MimeRenderer]]:
+    _ensure_builtin_mime_renderers()
+    for mime in _BUILTIN_MIME_BEFORE:
+        yield mime, _builtin_mime_renderers[mime]
+    yield from _user_mime_renderers.items()
+    for mime in _BUILTIN_MIME_AFTER:
+        yield mime, _builtin_mime_renderers[mime]
+
+
 def _render_mimebundle(data: dict[str, Any]) -> str | None:
     """Pick a Jupyter-like MIME from *data* and return an HTML fragment."""
-    if "text/html" in data:
-        return str(data["text/html"])
-    if "text/markdown" in data:
-        return _render_markdown(str(data["text/markdown"]))
-    if "image/svg+xml" in data:
-        return _render_svg(data["image/svg+xml"])
-    if "image/png" in data:
-        return _render_raster("image/png", data["image/png"])
-    if "image/jpeg" in data:
-        return _render_raster("image/jpeg", data["image/jpeg"])
-    if "application/json" in data:
-        return _render_json(data["application/json"])
-    if "text/plain" in data:
-        return f"<pre>{_escape(str(data['text/plain']))}</pre>"
+    for mime, renderer in _iter_mime_renderers():
+        if mime not in data:
+            continue
+        try:
+            html = renderer(data[mime])
+        except Exception:
+            continue
+        if html is not None:
+            return html
     return None
 
 
