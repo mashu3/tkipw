@@ -286,6 +286,7 @@ Built-ins:
 ## 🧪 Tests
 
 ```bash
+python -m tkipw doctor     # packages, WebView engine, bundled JS runtime
 pytest -m "not e2e"        # fast, display-free unit tests
 TKIPW_E2E=1 pytest -m e2e  # real WebView: boot, comm, and extension DOM regression
 ```
