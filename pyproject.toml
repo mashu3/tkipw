@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tkipw"
-version = "0.0.3"
+dynamic = ["version"]
 description = "ipywidgets / anywidget desktop runtime on tkwry (no Jupyter Notebook)"
 readme = "README.md"
 license = "MIT"
@@ -80,6 +80,9 @@ line-length = 88
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
 ignore = ["UP045"]
+
+[tool.hatch.version]
+path = "src/tkipw/__init__.py"
 
 # runtime.js / runtime.css are built by `npm run build` (js/) in CI and are
 # git-ignored, so list them as artifacts to force their inclusion in builds.

@@ -14,6 +14,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - ``python -m tkipw doctor`` reports package versions, WebView engine, and
   bundled widget assets (no window / WebView is created)
 
+### Changed
+
+- Package version is read from ``src/tkipw/__init__.py`` only (``pyproject.toml``
+  no longer duplicates it)
+
 ## [0.0.3] - 2026-08-15
 
 Adopt tkwry 0.1.4 (navigation, create-failed, downloads).
