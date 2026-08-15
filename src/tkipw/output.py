@@ -74,23 +74,13 @@ def render_html(obj: Any) -> str:
             return value
         return f"<pre>{_escape(repr(obj))}</pre>"
 
-    repr_html = getattr(obj, "_repr_html_", None)
-    if callable(repr_html):
-        try:
-            html = repr_html()
-            if html is not None:
-                return str(html)
-        except Exception:
-            pass
+    html = _call_repr(obj, "_repr_html_")
+    if html is not None:
+        return str(html)
 
-    repr_markdown = getattr(obj, "_repr_markdown_", None)
-    if callable(repr_markdown):
-        try:
-            source = repr_markdown()
-            if source is not None:
-                return _render_markdown(str(source))
-        except Exception:
-            pass
+    markdown = _call_repr(obj, "_repr_markdown_")
+    if markdown is not None:
+        return _render_markdown(str(markdown))
 
     mime = getattr(obj, "_repr_mimebundle_", None)
     if callable(mime):
@@ -105,10 +95,33 @@ def render_html(obj: Any) -> str:
         except Exception:
             pass
 
+    svg = _call_repr(obj, "_repr_svg_")
+    if svg is not None:
+        return _render_svg(svg)
+    png = _call_repr(obj, "_repr_png_")
+    if png is not None:
+        return _render_raster("image/png", png)
+    jpeg = _call_repr(obj, "_repr_jpeg_")
+    if jpeg is not None:
+        return _render_raster("image/jpeg", jpeg)
+    data = _call_repr(obj, "_repr_json_")
+    if data is not None:
+        return _render_json(data)
+
     if isinstance(obj, str):
         return f'<pre class="tkipw-stream tkipw-stdout">{_escape(obj)}</pre>'
 
     return f'<pre class="tkipw-stream tkipw-stdout">{_escape(repr(obj))}</pre>'
+
+
+def _call_repr(obj: Any, name: str) -> Any | None:
+    fn = getattr(obj, name, None)
+    if not callable(fn):
+        return None
+    try:
+        return fn()
+    except Exception:
+        return None
 
 
 def _render_mimebundle(data: dict[str, Any]) -> str | None:

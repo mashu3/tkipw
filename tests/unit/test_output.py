@@ -102,6 +102,52 @@ class TestRenderHtml:
         assert "<svg" in html
         assert "image/png" not in html
 
+    def test_repr_svg(self):
+        class Svg:
+            def _repr_svg_(self):
+                return "<svg/>"
+
+        html = render_html(Svg())
+        assert 'class="tkipw-svg"' in html
+        assert "<svg" in html
+
+    def test_repr_png(self):
+        class Png:
+            def _repr_png_(self):
+                return b"png"
+
+        html = render_html(Png())
+        assert "data:image/png;base64," in html
+
+    def test_repr_jpeg(self):
+        class Jpeg:
+            def _repr_jpeg_(self):
+                return b"\xff\xd8jpeg"
+
+        html = render_html(Jpeg())
+        assert "data:image/jpeg;base64," in html
+
+    def test_repr_json(self):
+        class Payload:
+            def _repr_json_(self):
+                return {"n": 1}
+
+        html = render_html(Payload())
+        assert 'class="tkipw-json"' in html
+        assert '"n": 1' in html
+
+    def test_mimebundle_html_wins_over_repr_png(self):
+        class Both:
+            def _repr_mimebundle_(self, include=None, exclude=None):
+                return {"text/html": "<b>html</b>"}
+
+            def _repr_png_(self):
+                return b"png"
+
+        html = render_html(Both())
+        assert html == "<b>html</b>"
+        assert "image/png" not in html
+
     def test_error_html(self):
         html = error_html("ValueError: boom")
         assert "ValueError" in html

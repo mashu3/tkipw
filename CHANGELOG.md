@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - MIME bundle rendering for ``image/svg+xml``, ``image/jpeg``, and
   ``application/json`` (SVG is preferred over PNG when both are present)
+- Honor IPython ``_repr_svg_`` / ``_repr_png_`` / ``_repr_jpeg_`` /
+  ``_repr_json_`` when no richer MIME bundle is present
 - ``App.activate()`` as a context manager restores the previous App on exit
 - ``python -m tkipw doctor`` reports package versions, WebView engine, and
   bundled widget assets (no window / WebView is created)
