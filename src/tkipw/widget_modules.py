@@ -1,15 +1,17 @@
-"""Explicit registration of classic AMD / nbextension widget front ends.
+"""Classic AMD / nbextension widget front ends.
 
-Discovery (``jupyter_path`` / Lab federation) is out of scope. Call
-:func:`register_widget_module` with a local JS file or directory. The
-runtime serves that tree over loopback and loads it from ``loadClass``.
+:func:`register_widget_module` takes an explicit local path.
+:func:`discover_widget_modules` scans Jupyter ``nbextensions`` directories
+(``jupyter_path`` when available). Lab Module Federation is out of scope.
 """
 
 from __future__ import annotations
 
 import json
+import os
+import sys
 from collections import OrderedDict
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from urllib.parse import quote
 
@@ -47,16 +49,8 @@ def register_widget_module(
     ``extension.js`` / ``{name}.js``. Sibling assets (CSS, images, wasm) are
     served from the same directory. This does **not** fetch from a CDN.
 
-    Example::
-
-        from pathlib import Path
-        import ipydatagrid
-        from tkipw import register_widget_module
-
-        register_widget_module(
-            "ipydatagrid",
-            Path(ipydatagrid.__file__).parent / "nbextension",
-        )
+    Prefer :func:`discover_widget_modules` (or just creating an ``App``) when
+    the package already installed an nbextension. Use this for an explicit path.
     """
     key = _normalize_name(name)
     if key in _RESERVED_MODULE_NAMES:
@@ -86,6 +80,112 @@ def unregister_widget_module(name: str) -> None:
         return
     get_html_host().unmount_directory(spec["publicPath"])
     _emit()
+
+
+def nbextension_dirs() -> list[Path]:
+    """Directories Jupyter searches for classic nbextensions (first wins)."""
+    try:
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="Jupyter is migrating its paths",
+                category=DeprecationWarning,
+            )
+            from jupyter_core.paths import jupyter_path
+
+            return [Path(p) for p in jupyter_path("nbextensions")]
+    except ImportError:
+        return _fallback_nbextension_dirs()
+
+
+def iter_nbextension_modules(
+    paths: Iterable[str | Path] | None = None,
+) -> list[tuple[str, Path]]:
+    """Return ``(module_name, directory)`` pairs that look like widget AMD.
+
+    Only directories that contain ``index.js`` are included. Bundled runtime
+    names are skipped. Earlier paths win when the same name appears twice.
+    """
+    roots = [Path(p) for p in paths] if paths is not None else nbextension_dirs()
+    found: OrderedDict[str, Path] = OrderedDict()
+    for root in roots:
+        try:
+            if not root.is_dir():
+                continue
+            children = list(root.iterdir())
+        except OSError:
+            continue
+        for child in sorted(children, key=lambda p: p.name):
+            if not child.is_dir() or child.name.startswith("."):
+                continue
+            name = child.name
+            if name in _RESERVED_MODULE_NAMES:
+                continue
+            if not (child / "index.js").is_file():
+                continue
+            found.setdefault(name, child)
+    return list(found.items())
+
+
+def discover_widget_modules(
+    *,
+    paths: Iterable[str | Path] | None = None,
+) -> list[str]:
+    """Register classic AMD modules found under Jupyter nbextension dirs.
+
+    Names already passed to :func:`register_widget_module` are left unchanged.
+    Returns the module names newly registered. Does not fetch from a CDN.
+    """
+    added: list[str] = []
+    for name, directory in iter_nbextension_modules(paths):
+        if name in _registry:
+            continue
+        try:
+            register_widget_module(name, directory)
+        except (ValueError, OSError):
+            continue
+        added.append(name)
+    return added
+
+
+def _fallback_nbextension_dirs() -> list[Path]:
+    dirs: list[Path] = []
+    extra = os.environ.get("JUPYTER_PATH")
+    if extra:
+        for raw in extra.split(os.pathsep):
+            text = raw.strip()
+            if text:
+                dirs.append(Path(text) / "nbextensions")
+    dirs.append(_user_jupyter_dir() / "nbextensions")
+    dirs.append(Path(sys.prefix) / "share" / "jupyter" / "nbextensions")
+    seen: set[Path] = set()
+    unique: list[Path] = []
+    for path in dirs:
+        try:
+            key = path.resolve()
+        except OSError:
+            key = path
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(path)
+    return unique
+
+
+def _user_jupyter_dir() -> Path:
+    if sys.platform == "win32":
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            return Path(appdata) / "jupyter"
+        return Path.home() / "AppData" / "Roaming" / "jupyter"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Jupyter"
+    xdg = os.environ.get("XDG_DATA_HOME")
+    if xdg:
+        return Path(xdg) / "jupyter"
+    return Path.home() / ".local" / "share" / "jupyter"
 
 
 def registered_widget_modules() -> dict[str, dict[str, str]]:

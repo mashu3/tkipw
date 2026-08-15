@@ -46,6 +46,19 @@ def test_format_contains_sections():
     assert "jupyter-matplotlib" in text
 
 
+def test_doctor_lists_classic_nbextensions(tmp_path, monkeypatch):
+    folder = tmp_path / "ipydatagrid"
+    folder.mkdir()
+    (folder / "index.js").write_bytes(b"define([],function(){});\n")
+    monkeypatch.setattr(
+        "tkipw.widget_modules.iter_nbextension_modules",
+        lambda paths=None: [("ipydatagrid", folder)],
+    )
+    text = collect_report().format()
+    assert "Classic nbextensions" in text
+    assert "ipydatagrid" in text
+
+
 def test_run_doctor_exit_zero(capsys):
     assert run_doctor() == 0
     out = capsys.readouterr().out

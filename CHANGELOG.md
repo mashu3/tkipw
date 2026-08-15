@@ -17,6 +17,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   JSON / plain text)
 - ``register_widget_module`` loads classic AMD / nbextension JS from a local
   path (loopback-hosted; not bundled and not fetched from a CDN)
+- ``discover_widget_modules`` (also run when the widget shell is created)
+  registers classic AMD widgets found under Jupyter ``nbextensions``
 - ``WidgetFrame`` — a ``tk.Frame`` you pack yourself; ``App`` now subclasses it
   and still auto-packs (including ``parent=``)
 - ``display(..., display_id=True)`` returns a ``DisplayHandle``; ``update()`` /

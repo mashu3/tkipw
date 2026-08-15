@@ -849,7 +849,9 @@ def _shell_document_url(*, compact: bool = False, theme: str = "light") -> str:
     / ``runtime.css`` as separate loopback assets and keep the HTML small.
     """
     from .html_host import get_html_host
+    from .widget_modules import discover_widget_modules
 
+    discover_widget_modules()
     _profile_mark("shell:get_html_host…")
     host = get_html_host()
     _profile_mark("shell:get_html_host done")

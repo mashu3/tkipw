@@ -1,8 +1,8 @@
 """Environment diagnostics for ``python -m tkipw doctor``.
 
-Does not create a Tk window or a native WebView. Third-party widget JS is
-loaded only via explicit ``register_widget_module`` (directory discovery is
-out of scope).
+Does not create a Tk window or a native WebView. Classic AMD widgets are
+loaded from ``register_widget_module`` or Jupyter ``nbextensions`` discovery
+(Lab Module Federation is out of scope).
 """
 
 from __future__ import annotations
@@ -60,6 +60,7 @@ class DoctorReport:
     shell: list[DoctorLine]
     widgets: list[DoctorLine]
     extras: list[DoctorLine]
+    nbextensions: list[DoctorLine]
 
     @property
     def ok(self) -> bool:
@@ -79,6 +80,8 @@ class DoctorReport:
             _section("Widget runtime", self.widgets),
             _section("Python extras (optional)", self.extras),
         ]
+        if self.nbextensions:
+            blocks.append(_section("Classic nbextensions", self.nbextensions))
         return "\n".join(blocks) + "\n"
 
 
@@ -101,6 +104,7 @@ def collect_report(*, html_dir: Path | None = None) -> DoctorReport:
             for name in _BUNDLED_WIDGET_MODULES
         ],
         extras=[_package_line(name, required=False) for name in _OPTIONAL_PACKAGES],
+        nbextensions=_nbextension_lines(),
     )
 
 
@@ -109,6 +113,18 @@ def run_doctor(*, file: object | None = None) -> int:
     report = collect_report()
     print(report.format(), end="", file=file)
     return 0 if report.ok else 1
+
+
+def _nbextension_lines() -> list[DoctorLine]:
+    from .widget_modules import iter_nbextension_modules
+
+    try:
+        found = iter_nbextension_modules()
+    except Exception:
+        return []
+    return [
+        DoctorLine(name, "nbextension", True, required=False) for name, _path in found
+    ]
 
 
 def _package_line(name: str, *, required: bool) -> DoctorLine:

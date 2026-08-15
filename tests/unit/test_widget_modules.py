@@ -8,6 +8,7 @@ import pytest
 
 from tkipw.app import _load_shell_html
 from tkipw.widget_modules import (
+    discover_widget_modules,
     register_widget_module,
     registered_widget_modules,
     unregister_widget_module,
@@ -80,3 +81,78 @@ def test_register_widget_module_notifies_watchers(tmp_path):
     finally:
         unwatch()
         unregister_widget_module("watched-grid")
+
+
+_AMD_EMPTY = b"define([],function(){return {};});\n"
+
+
+def _write_nbextension(root, name: str, payload: bytes = _AMD_EMPTY):
+    folder = root / name
+    folder.mkdir()
+    (folder / "index.js").write_bytes(payload)
+    return folder
+
+
+def test_discover_widget_modules_registers_index_js(tmp_path):
+    _write_nbextension(tmp_path, "demo-auto")
+    _write_nbextension(tmp_path, "bqplot")  # bundled — skipped
+    chrome = tmp_path / "chrome-only"
+    chrome.mkdir()
+    (chrome / "extension.js").write_bytes(b"define([],function(){});\n")
+    try:
+        added = discover_widget_modules(paths=[tmp_path])
+        assert added == ["demo-auto"]
+        spec = registered_widget_modules()["demo-auto"]
+        assert spec["url"].endswith("/index.js")
+        assert "bqplot" not in registered_widget_modules()
+        assert "chrome-only" not in registered_widget_modules()
+    finally:
+        unregister_widget_module("demo-auto")
+
+
+def test_discover_widget_modules_keeps_explicit_register(tmp_path):
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    explicit = _write_nbextension(first, "demo-keep", b"/*a*/")
+    _write_nbextension(second, "demo-keep", b"/*b*/")
+    try:
+        register_widget_module("demo-keep", explicit)
+        url = registered_widget_modules()["demo-keep"]["url"]
+        added = discover_widget_modules(paths=[second])
+        assert added == []
+        assert registered_widget_modules()["demo-keep"]["url"] == url
+    finally:
+        unregister_widget_module("demo-keep")
+
+
+def test_discover_widget_modules_first_path_wins(tmp_path):
+    early = tmp_path / "early"
+    late = tmp_path / "late"
+    early.mkdir()
+    late.mkdir()
+    _write_nbextension(early, "demo-win", b"/*early*/")
+    _write_nbextension(late, "demo-win", b"/*late*/")
+    try:
+        added = discover_widget_modules(paths=[early, late])
+        assert added == ["demo-win"]
+        with urlopen(registered_widget_modules()["demo-win"]["url"], timeout=5) as resp:  # noqa: S310
+            assert b"/*early*/" in resp.read()
+    finally:
+        unregister_widget_module("demo-win")
+
+
+def test_shell_document_url_discovers_nbextensions(tmp_path, monkeypatch):
+    from tkipw.app import _shell_document_url
+
+    _write_nbextension(tmp_path, "demo-shell")
+    monkeypatch.setattr("tkipw.widget_modules.nbextension_dirs", lambda: [tmp_path])
+    try:
+        url = _shell_document_url()
+        spec = registered_widget_modules()["demo-shell"]
+        with urlopen(url, timeout=5) as resp:  # noqa: S310
+            html = resp.read().decode("utf-8")
+        assert spec["url"] in html
+    finally:
+        unregister_widget_module("demo-shell")
