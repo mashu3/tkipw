@@ -31,6 +31,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Package version is read from ``src/tkipw/__init__.py`` only (``pyproject.toml``
   no longer duplicates it)
+- Widget-shell navigation keeps **any loopback port** in the WebView (PyVista
+  trame uses a different port than the HTML host). Public http(s) still opens
+  in the system browser. Trame launch pumps Tk so tkwry ``on_navigation``
+  cannot deadlock the host.
 
 ## [0.0.3] - 2026-08-15
 

@@ -50,6 +50,19 @@ def test_shell_bridge_origin_matches_document_host():
     assert url.startswith(origin + "/")
 
 
+def test_in_webview_navigation_allows_other_loopback_ports():
+    from tkipw.app import _in_webview_navigation_allowed, _shell_bridge_origin
+
+    origin = _shell_bridge_origin()
+    assert _in_webview_navigation_allowed(f"{origin}/document/abc.html")
+    # PyVista/trame serves the plot iframe from a different loopback port.
+    assert _in_webview_navigation_allowed("http://127.0.0.1:12345/index.html")
+    assert _in_webview_navigation_allowed("http://localhost:8080/")
+    assert _in_webview_navigation_allowed("about:blank")
+    assert not _in_webview_navigation_allowed("https://example.com/")
+    assert not _in_webview_navigation_allowed("https://cdn.jsdelivr.net/npm/x")
+
+
 def test_shell_html_bakes_theme_attribute():
     assert 'data-theme="dark"' in _load_shell_html(theme="dark")
     assert 'data-theme="light"' in _load_shell_html(theme="light")

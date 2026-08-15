@@ -279,6 +279,15 @@ class TestPyVista:
         assert "http://127.0.0.1:" in out.value
         assert 'src="' in out.value
 
+    def test_wait_future_pumps_until_done(self):
+        import concurrent.futures
+
+        from tkipw.extensions.pyvista import _wait_future_pumping_tk
+
+        done = concurrent.futures.Future()
+        done.set_result("ok")
+        assert _wait_future_pumping_tk(done, timeout=1.0) == "ok"
+
 
 class TestPillow:
     def test_image_transforms_to_png_widget(self):

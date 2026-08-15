@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import atexit
+import concurrent.futures
+import time
 import warnings
 from types import MethodType
 from typing import Any
@@ -127,7 +129,11 @@ class PyVistaExtension:
             if not extension._shutdown_registered:
                 atexit.register(extension._shutdown)
                 extension._shutdown_registered = True
-            return loop.submit(launch()).result(timeout=30)
+            # Do not block the Tk thread with a bare Future.result: tkwry
+            # on_navigation is a sync hook and WebKit waits for it. Pumping
+            # lets the trame iframe (other loopback port) load while aiohttp
+            # comes up, instead of freezing the host for the full timeout.
+            return _wait_future_pumping_tk(loop.submit(launch()), timeout=30.0)
 
         pv_jupyter.elegantly_launch = elegantly_launch
         self._apply_preferred_backend(pv)
@@ -224,6 +230,33 @@ class PyVistaExtension:
         if hosted is not None:
             obj.value = hosted
         return obj
+
+
+def _wait_future_pumping_tk(future: concurrent.futures.Future[Any], *, timeout: float) -> Any:
+    """Wait for *future* while dispatching Tk so WebView sync hooks can run."""
+    import tkinter as tk
+
+    from ..comm_backend import get_bridge
+
+    deadline = time.monotonic() + timeout
+    app = get_bridge()
+    root = getattr(app, "root", None) if app is not None else None
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return future.result(timeout=0)
+        if future.done():
+            return future.result()
+        if root is not None:
+            try:
+                root.update_idletasks()
+                root.update()
+            except tk.TclError:
+                root = None
+        try:
+            return future.result(timeout=min(0.05, remaining))
+        except concurrent.futures.TimeoutError:
+            continue
 
 
 def enable_pyvista(*, jupyter_backend: str | None = None) -> None:

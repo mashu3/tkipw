@@ -303,8 +303,9 @@ Built-ins:
 * **JS** — `@jupyter-widgets/html-manager` + `window.ipc`, with anywidget,
   jupyter-leaflet, ipycanvas, bqplot/bqscales, and jupyter-matplotlib bundled in
 * **Bridge** — a stack of active `App`s; the top receives new comm traffic
-* **Navigation** — the widget shell stays on the loopback host; other http(s)
-  links open in the system browser (tkwry `navigation_allow` / `open_external`)
+* **Navigation** — the widget shell stays on loopback; other loopback ports
+  (PyVista trame) stay in the WebView; public http(s) links open in the
+  system browser (tkwry `on_navigation` / `open_external`)
 
 ---
 
@@ -330,7 +331,7 @@ avoid WebKitGTK hangs). See [`.github/workflows/ci.yml`](.github/workflows/ci.ym
   discovered from Jupyter `nbextensions` (or `register_widget_module`).
   JupyterLab Module Federation is out of scope.
 * **PyVista on macOS** — client-side rendering only (see extensions above)
-* **External links** — http(s) outside the loopback host open in the system
+* **External links** — http(s) outside loopback open in the system
   browser, not inside the widget WebView
 * **Platform behavior** — inherits tkwry's platform notes (macOS embedding, import order, Linux source build)
 

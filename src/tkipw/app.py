@@ -14,7 +14,7 @@ from pathlib import Path
 from tkinter import filedialog
 from typing import Any
 
-from tkwry import PageLoadEvent, WebView
+from tkwry import PageLoadEvent, WebView, open_in_browser
 
 from .comm_backend import (
     get_comm,
@@ -889,6 +889,32 @@ def _shell_bridge_origin() -> str:
     return f"http://127.0.0.1:{get_html_host().port}"
 
 
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def _in_webview_navigation_allowed(url: str) -> bool:
+    """True for blank documents and any loopback http(s) URL.
+
+    The widget shell lives on :func:`get_html_host`, but live backends such as
+    PyVista/trame serve the plot iframe from a **different** loopback port.
+    tkwry ``navigation_allow`` is origin-exact (scheme + host + port), so a
+    single shell origin is not enough. Public http(s) still stays out.
+    """
+    from urllib.parse import urlparse
+
+    raw = (url or "").strip()
+    if not raw:
+        return False
+    lower = raw.lower()
+    if lower.startswith("about:"):
+        return True
+    parsed = urlparse(raw)
+    if parsed.scheme.lower() not in {"http", "https"}:
+        return False
+    host = (parsed.hostname or "").lower()
+    return host in _LOOPBACK_HOSTS
+
+
 def _suggested_download_filename(*candidates: object) -> str:
     """Pick a basename from *candidates*, ignoring empty / path-escape names."""
     for raw in candidates:
@@ -1057,8 +1083,10 @@ class WidgetFrame(tk.Frame):
         # Explicit size: tkwry can create + Navigate while the host is still
         # hidden (tklab output pane starts with paned ``hide=True``). Without
         # this, initial load waits until the pane is first shown → cold Run.
-        # Stay on the loopback host; off-list http(s) opens in the system
-        # browser (do not pass a custom on_navigation — it replaces this).
+        # Loopback (any port) stays in the WebView so PyVista/trame iframes
+        # are not denied. Other http(s) opens in the system browser.
+        # Custom on_navigation replaces tkwry's navigation_allow decision for
+        # this direction, so the handler also performs open_external.
         _profile_mark("WebView()… (incl. shell URL + may pump native create)")
         shell_url = _shell_document_url(compact=self.compact, theme=self.theme)
         self.webview = WebView(
@@ -1070,6 +1098,7 @@ class WidgetFrame(tk.Frame):
             on_page_load=self._on_page_load,
             navigation_allow=[_shell_bridge_origin()],
             open_external=True,
+            on_navigation=self._on_webview_navigation,
             on_download=self._on_native_download,
             on_creation_failed=self._on_webview_create_failed,
             devtools=self._devtools,
@@ -1080,6 +1109,21 @@ class WidgetFrame(tk.Frame):
             when_ready = getattr(self.webview, "when_ready", None)
             if callable(when_ready):
                 when_ready(lambda: _profile_mark("webview_native_ready"))
+
+    def _on_webview_navigation(self, url: str) -> bool:
+        """Keep loopback (shell + trame) in-webview; open public http(s)."""
+        if _in_webview_navigation_allowed(url):
+            return True
+        self._open_external_url(url)
+        return False
+
+    def _open_external_url(self, url: str) -> None:
+        """Open *url* in the system browser on the next Tk idle tick."""
+        target = url
+        try:
+            self.root.after(0, lambda: open_in_browser(target))
+        except tk.TclError:
+            open_in_browser(target)
 
     def ensure_jupyter_support(self) -> None:
         """Install IPython display bridge and optional library adapters.
