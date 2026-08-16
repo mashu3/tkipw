@@ -48,7 +48,7 @@ __all__ = [
     # ``from tkipw import enable_*`` / ``__getattr__``, but omitted here so
     # ``from tkipw import *`` does not pull optional heavy dependencies.
 ]
-__version__ = "0.0.3"
+__version__ = "0.0.4"
 
 _LAZY_ATTRS: dict[str, tuple[str, str]] = {
     "App": (".app", "App"),

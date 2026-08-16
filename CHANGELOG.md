@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.0.4] - 2026-08-16
+
+WidgetFrame, display updates, classic AMD modules, and lazy widget packs.
+
 ### Added
 
 - MIME bundle rendering for ``image/svg+xml``, ``image/jpeg``, and
@@ -31,6 +35,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Package version is read from ``src/tkipw/__init__.py`` only (``pyproject.toml``
   no longer duplicates it)
+- ``App(display_mode=…)`` is now ``"viewer"`` / ``"window"`` (``"inline"`` remains
+  a deprecated alias for ``"viewer"``). Matplotlib adapter modes stay
+  ``inline`` / ``window`` / ``widget``; App ``viewer`` maps to Matplotlib ``inline``
 - Widget-shell navigation keeps **any loopback port** in the WebView (PyVista
   trame uses a different port than the HTML host). Public http(s) still opens
   in the system browser. Trame launch pumps Tk so tkwry ``on_navigation``
@@ -48,7 +55,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Pillow's adapter key (``pillow``) is resolved to ``PIL`` / ``Pillow`` in
   ``sys.modules``, so ``from PIL import Image`` after Jupyter support still
   patches ``Image.show()`` (otherwise macOS Preview / a native window opens).
-- Inline ipycanvas fills the pane width (``height: auto``) so the drawing
+- Viewer-pane ipycanvas fills the pane width (``height: auto``) so the drawing
   buffer's aspect ratio is kept instead of the attribute pixel box.
 - Rewrite the identifier ``global`` to ``globalThis`` in widget packs so
   ipycanvas's Node ``buffer`` polyfill can boot inside a strict IIFE
