@@ -1,4 +1,4 @@
-"""Per-App ``inline`` / ``window`` display mode (no WebView required)."""
+"""Per-App ``viewer`` / ``window`` display mode (no WebView required)."""
 
 from __future__ import annotations
 
@@ -22,12 +22,21 @@ def _reset_mode():
 
 
 def test_set_display_mode_rejects_invalid():
-    with pytest.raises(ValueError, match="inline"):
+    with pytest.raises(ValueError, match="viewer"):
         set_display_mode("popup")  # type: ignore[arg-type]
 
 
-def test_inline_display_appends_to_app_output():
+def test_inline_alias_normalizes_to_viewer():
     app = FakeApp(display_mode="inline")
+    set_bridge(app)
+    assert get_display_mode() == "viewer"
+    set_display_mode("inline")
+    assert app.display_mode == "viewer"
+    assert get_display_mode() == "viewer"
+
+
+def test_viewer_display_appends_to_app_output():
+    app = FakeApp(display_mode="viewer")
     set_bridge(app)
 
     display(widgets.HTML(value="<b>hi</b>"))
@@ -82,7 +91,7 @@ def test_runtime_setter_changes_active_app_and_matplotlib_backend():
 
     from tkipw.jupyter import install_jupyter_support
 
-    app = FakeApp(display_mode="inline")
+    app = FakeApp(display_mode="viewer")
     set_bridge(app)
     install_jupyter_support()
     set_display_mode("window")
@@ -91,18 +100,18 @@ def test_runtime_setter_changes_active_app_and_matplotlib_backend():
     if "tkagg" not in matplotlib.get_backend().lower():
         pytest.skip("TkAgg backend unavailable in this environment")
 
-    set_display_mode("inline")
-    assert app.display_mode == "inline"
-    assert get_display_mode() == "inline"
+    set_display_mode("viewer")
+    assert app.display_mode == "viewer"
+    assert get_display_mode() == "viewer"
     assert "agg" in matplotlib.get_backend().lower()
 
 
 def test_active_app_determines_mode():
-    inline = FakeApp(display_mode="inline")
+    viewer = FakeApp(display_mode="viewer")
     window = FakeApp(display_mode="window")
 
-    set_bridge(inline)
-    assert get_display_mode() == "inline"
+    set_bridge(viewer)
+    assert get_display_mode() == "viewer"
 
     set_bridge(window)
     assert get_display_mode() == "window"

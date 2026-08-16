@@ -121,7 +121,7 @@ def test_display_mode_menu_updates_app_and_output_pane():
 
 def test_stop_interrupts_python_loop_and_displays_message():
     playground = Playground.__new__(Playground)
-    playground.app = SimpleNamespace(display_mode="inline")
+    playground.app = SimpleNamespace(display_mode="viewer")
     playground._results = StackedOutput()
     playground._stop_requested = False
     playground._user_tk_roots = []
@@ -143,7 +143,7 @@ def test_stop_interrupts_tkinter_mainloop(tk_root):
     root = tk_root
     root.withdraw()
     playground = Playground.__new__(Playground)
-    playground.app = SimpleNamespace(display_mode="inline")
+    playground.app = SimpleNamespace(display_mode="viewer")
     playground._results = StackedOutput()
     playground._busy = True
     playground._stop_requested = False
@@ -177,7 +177,7 @@ def test_closing_tkinter_window_ends_run_without_stop(tk_root):
     root = tk_root
     root.withdraw()
     playground = Playground.__new__(Playground)
-    playground.app = SimpleNamespace(display_mode="inline")
+    playground.app = SimpleNamespace(display_mode="viewer")
     playground._results = StackedOutput()
     playground._busy = True
     playground._stop_requested = False

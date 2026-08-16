@@ -36,13 +36,13 @@ def test_host_html_document_returns_loopback_iframe():
     assert "height:420px" in fragment
 
 
-def test_host_html_document_inline_forces_full_width():
+def test_host_html_document_viewer_forces_full_width():
     from support import FakeApp
 
     from tkipw.comm_backend import set_bridge
     from tkipw.html_host import get_html_host
 
-    set_bridge(FakeApp(display_mode="inline"))
+    set_bridge(FakeApp(display_mode="viewer"))
     try:
         fragment = host_html_document(
             "<!doctype html><html><head></head><body><div id='x'></div></body></html>",
@@ -64,13 +64,13 @@ def test_host_html_document_inline_forces_full_width():
         set_bridge(None)
 
 
-def test_host_html_document_inline_can_skip_fill():
+def test_host_html_document_viewer_can_skip_fill():
     from support import FakeApp
 
     from tkipw.comm_backend import set_bridge
     from tkipw.html_host import get_html_host
 
-    set_bridge(FakeApp(display_mode="inline"))
+    set_bridge(FakeApp(display_mode="viewer"))
     try:
         fragment = host_html_document(
             (
@@ -92,12 +92,12 @@ def test_host_html_document_inline_can_skip_fill():
         set_bridge(None)
 
 
-def test_host_html_document_inline_keeps_height_when_width_already_fluid():
+def test_host_html_document_viewer_keeps_height_when_width_already_fluid():
     from support import FakeApp
 
     from tkipw.comm_backend import set_bridge
 
-    set_bridge(FakeApp(display_mode="inline"))
+    set_bridge(FakeApp(display_mode="viewer"))
     try:
         fragment = host_html_document(
             "<!doctype html><p>hi</p>",

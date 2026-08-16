@@ -336,7 +336,7 @@ def display(
 
     Prefer an ``Output`` context; otherwise follow :func:`get_display_mode`:
 
-    * ``inline`` — App default output area
+    * ``viewer`` — App default output area
     * ``window`` — a new Tk ``Toplevel`` per call (or the existing one when
       ``update=True`` and ``display_id`` matches)
 

@@ -1,7 +1,7 @@
-"""tkipw playground — inline-mode demo.
+"""tkipw playground — viewer-mode demo.
 
 Left: Monaco (multi-tab), right: stacked notebook-style output.
-``App(display_mode="inline")`` is the default; this app is the reference for
+``App(display_mode="viewer")`` is the default; this app is the reference for
 that mode. See ``examples/*_demo.py`` for window-mode pop-ups.
 
 Samples are open as editor tabs; switching tabs replaces the old combobox.
@@ -1459,9 +1459,9 @@ class Playground:
         self._word_wrap_var = tk.BooleanVar(self.root, value=True)
         self._dark_editor_var = tk.BooleanVar(self.root, value=True)
         self._dark_output_var = tk.BooleanVar(self.root, value=True)
-        # Start with the editor at full width. Inline Run reveals the pane.
+        # Start with the editor at full width. Viewer Run reveals the pane.
         self._output_visible_var = tk.BooleanVar(self.root, value=False)
-        self._display_mode_var = tk.StringVar(self.root, value="inline")
+        self._display_mode_var = tk.StringVar(self.root, value="viewer")
         self._save_dialog_active = False
         self._editor_ready = False
         self._status_ready = False
@@ -1537,7 +1537,7 @@ class Playground:
         self.app: App | None = App(
             parent=right,
             title="tkipw · playground",
-            display_mode="inline",
+            display_mode="viewer",
             theme="dark" if self._dark_output_var.get() else "light",
         )
         self.app.display(self._results)
@@ -1662,8 +1662,8 @@ class Playground:
         view_menu.add_separator()
         display_menu = tk.Menu(view_menu, tearoff=False)
         display_menu.add_radiobutton(
-            label="Inline",
-            value="inline",
+            label="Viewer",
+            value="viewer",
             variable=self._display_mode_var,
             command=self._apply_display_mode,
         )
@@ -1753,8 +1753,8 @@ class Playground:
         if self.app is None:
             return
         self.app.set_display_mode(mode)
-        # Inline needs the result pane; window mode gives the editor full width.
-        self._set_output_visible(mode == "inline")
+        # Viewer needs the result pane; window mode gives the editor full width.
+        self._set_output_visible(mode == "viewer")
         self._set_status(f"display · {mode}")
 
     def _set_output_visible(
@@ -2142,8 +2142,8 @@ class Playground:
         if self._busy or not self._editor_ready or self._editor is None:
             return
         mode = self._display_mode_var.get()
-        inline = mode != "window"
-        if inline and not self._output_visible_var.get():
+        viewer = mode != "window"
+        if viewer and not self._output_visible_var.get():
             self._set_output_visible(True)
         self._busy = True
         self._stop_requested = False
@@ -2332,12 +2332,12 @@ class Playground:
             self._finish("output app not ready")
             return
         status = "done"
-        inline = self.app.display_mode == "inline"
-        stream_output = None if inline else out.Output()
-        target = self._results if inline else out.stream_context(stream_output)
+        viewer = self.app.display_mode == "viewer"
+        stream_output = None if viewer else out.Output()
+        target = self._results if viewer else out.stream_context(stream_output)
         with target:
             try:
-                if inline:
+                if viewer:
                     out.clear_output(wait=False)
                 ns = {
                     "__name__": "__main__",
@@ -2404,7 +2404,7 @@ class Playground:
             self._finish("output app not ready")
             return
         try:
-            if self.app.display_mode == "inline":
+            if self.app.display_mode == "viewer":
                 with self._results:
                     out.clear_output(wait=False)
                     out.display(Markdown(source))

@@ -110,7 +110,7 @@ def test_compact_shell_zero_pads_canvas_and_bqplot():
     assert ":has(.bqplot) .jupyter-widgets" not in _SHELL_CSS
 
 
-def test_inline_shell_scales_ipycanvas_to_pane_width():
+def test_viewer_shell_scales_ipycanvas_to_pane_width():
     from tkipw.app import _SHELL_CSS
 
     assert (

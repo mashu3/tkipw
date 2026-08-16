@@ -146,9 +146,9 @@ class BokehExtension:
 
         from ..display_mode import get_display_mode
 
-        inline = get_display_mode() == "inline"
+        viewer = get_display_mode() == "viewer"
         restore: tuple[Any, Any] | None = None
-        if inline and hasattr(obj, "sizing_mode"):
+        if viewer and hasattr(obj, "sizing_mode"):
             restore = (obj.sizing_mode, getattr(obj, "width", None))
             # Stretch to the output pane while keeping the author's height.
             obj.sizing_mode = "stretch_width"
@@ -157,7 +157,7 @@ class BokehExtension:
             document = file_html(obj, CDN, title="Bokeh plot")
             # Always avoid body/canvas height:100% — it breaks Bokeh tool hit-testing.
             document = _window_document(document)
-            if inline:
+            if viewer:
                 _w, height_px = chart_pixels(obj)
                 location = getattr(obj, "toolbar_location", None)
                 pad_h = _TOOLBAR_PAD if location in ("above", "below") else 0

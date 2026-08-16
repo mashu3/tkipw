@@ -119,16 +119,16 @@ class TestMatplotlib:
         # (``install_jupyter_support`` would re-enable widget; App display_mode
         # alone does not override it).
         enable_matplotlib(mode="inline")
-        set_display_mode("inline")
+        set_display_mode("viewer")
         assert get_extension("matplotlib").mode == "inline"  # type: ignore[union-attr]
 
         set_display_mode("window")
         assert get_extension("matplotlib").mode == "window"  # type: ignore[union-attr]
         if "tkagg" not in matplotlib.get_backend().lower():
-            set_display_mode("inline")
+            set_display_mode("viewer")
             pytest.skip("TkAgg backend unavailable in this environment")
 
-        set_display_mode("inline")
+        set_display_mode("viewer")
         fig = plt.figure()
         with patch("tkipw.output.display") as display_mock:
             plt.show()
@@ -139,7 +139,7 @@ class TestMatplotlib:
         pytest.importorskip("matplotlib")
         from tkipw.display_mode import set_display_mode
 
-        with pytest.raises(ValueError, match="inline"):
+        with pytest.raises(ValueError, match="viewer"):
             set_display_mode("popup")  # type: ignore[arg-type]
 
     def test_widget_mode_transforms_figure_to_ipympl_canvas(self):
@@ -437,7 +437,7 @@ class TestAltair:
         assert win_w > 400
         assert win_h > 240
 
-        set_bridge(FakeApp(display_mode="inline"))
+        set_bridge(FakeApp(display_mode="viewer"))
         inline = AltairExtension().transform(chart)
         assert "width:100%" in inline.value
         set_bridge(None)
@@ -475,7 +475,7 @@ class TestBokeh:
         assert aw == 302
         assert ah > 200
 
-        set_bridge(FakeApp(display_mode="inline"))
+        set_bridge(FakeApp(display_mode="viewer"))
         inline = BokehExtension().transform(plot)
         assert "width:100%" in inline.value
         assert plot.sizing_mode != "stretch_width"  # restored after transform
@@ -527,7 +527,7 @@ class TestFolium:
         assert "height:400px" in widget.value
         assert infer_window_size(m) == (800, 400)
 
-        set_bridge(FakeApp(display_mode="inline"))
+        set_bridge(FakeApp(display_mode="viewer"))
         inline = FoliumExtension().transform(m)
         assert isinstance(inline, widgets.HTML)
         # Inline: pane width wins, height follows Map aspect (800×400 → 2/1).

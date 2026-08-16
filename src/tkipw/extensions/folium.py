@@ -25,7 +25,7 @@ class FoliumExtension:
     and ignores ``Map(width=…, height=…)``. When both dimensions are pixels,
     we host the standalone map document in a sized iframe instead.
 
-    Inline width stretching is handled generically by ``host_html_document``
+    Viewer-pane width stretching is handled generically by ``host_html_document``
     (pane width wins over declared pixels).
     """
 

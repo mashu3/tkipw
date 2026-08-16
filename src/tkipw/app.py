@@ -370,7 +370,7 @@ html[data-theme="dark"] {
    size the drawing buffer *and* the default CSS box, so a 640×360 canvas
    stays 640px even though ``.jupyter-widgets { width:100% }`` is set —
    the attribute presentational hint plus flex ``min-width:auto`` win.
-   Inline pane: fill the column, keep the bitmap aspect ratio.
+   Viewer pane: fill the column, keep the bitmap aspect ratio.
    Compact pop-ups are already sized to the bitmap; leave them alone.
    Do not target ipympl's inner canvases (they are not ``.jupyter-widgets``). */
 body:not(.tkipw-compact) #tkipw-widgets canvas.jupyter-widgets {
@@ -409,7 +409,7 @@ body:not(.tkipw-compact) #tkipw-widgets canvas.jupyter-widgets {
   background: transparent;
 }
 #tkipw-widgets .widget-html iframe.tkipw-hosted-html {
-  /* Inline pane: fill column width; height comes from the element style
+  /* Viewer pane: fill column width; height comes from the element style
      (fixed px, or aspect-ratio + height:auto). Compact shells override both. */
   width: 100% !important;
   max-width: 100%;
@@ -1038,9 +1038,10 @@ class WidgetFrame(tk.Frame):
         view.display(widgets.IntSlider())
         root.mainloop()
 
-    ``display_mode="inline"`` sends ``display()`` / library ``show()`` output
+    ``display_mode="viewer"`` sends ``display()`` / library ``show()`` output
     into this host. ``display_mode="window"`` opens a new Tk pop-up for each
-    output (Matplotlib uses native TkAgg windows).
+    output (Matplotlib uses native TkAgg windows). ``"inline"`` is a deprecated
+    alias for ``"viewer"``.
     """
 
     def __init__(
@@ -1049,7 +1050,7 @@ class WidgetFrame(tk.Frame):
         *,
         title: str = "tkipw",
         devtools: bool = False,
-        display_mode: str = "inline",
+        display_mode: str = "viewer",
         compact: bool = False,
         theme: str = "light",
         colors: Mapping[str, str] | None = None,
@@ -1481,7 +1482,7 @@ class WidgetFrame(tk.Frame):
         return _AppActivation(self, previous)
 
     def set_display_mode(self, mode: str) -> None:
-        """Switch this App between inline output and pop-up windows."""
+        """Switch this App between viewer-pane output and pop-up windows."""
         from .display_mode import validate_display_mode
 
         self.display_mode = validate_display_mode(mode)
@@ -1668,7 +1669,7 @@ class App(WidgetFrame):
         root: tk.Misc | None = None,
         parent: tk.Misc | None = None,
         devtools: bool = False,
-        display_mode: str = "inline",
+        display_mode: str = "viewer",
         compact: bool = False,
         theme: str = "light",
         colors: Mapping[str, str] | None = None,

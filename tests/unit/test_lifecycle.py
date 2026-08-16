@@ -70,7 +70,7 @@ class TestActivateContext:
     def _app(self) -> App:
         app = App.__new__(App)
         app._destroyed = False
-        app.display_mode = "inline"
+        app.display_mode = "viewer"
         return app
 
     def test_statement_keeps_app_active(self):

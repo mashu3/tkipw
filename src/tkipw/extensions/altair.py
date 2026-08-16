@@ -54,7 +54,7 @@ class AltairExtension:
     """Render Altair charts through their official standalone HTML export.
 
     * **window** — iframe matches the chart's pixel size plus axis/title chrome
-    * **inline** — export with ``width="container"`` so the chart fills the pane
+    * **viewer** — export with ``width="container"`` so the chart fills the pane
     """
 
     name = "altair"
@@ -75,7 +75,7 @@ class AltairExtension:
 
         _width_px, height_px = chart_pixels(obj)
 
-        if get_display_mode() == "inline":
+        if get_display_mode() == "viewer":
             # Fill the output pane; keep the author's height.
             export = obj.properties(width="container", height=height_px)
             document = export.to_html()

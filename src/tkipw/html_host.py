@@ -232,8 +232,8 @@ def _inject_head_style(document: str, css: str) -> str:
     return block + document
 
 
-def _inline_fill_document(document: str) -> str:
-    """Stretch hosted page content to the iframe (inline pane width wins)."""
+def _viewer_fill_document(document: str) -> str:
+    """Stretch hosted page content to the iframe (viewer pane width wins)."""
     return _inject_head_style(
         document,
         "html,body{width:100%;height:100%;margin:0;padding:0;overflow:hidden;}"
@@ -263,14 +263,14 @@ def host_html_document(
 ) -> str:
     """Host a complete HTML document and return an iframe fragment.
 
-    When an App is active in **inline** mode and both *width* and *height* are
+    When an App is active in **viewer** mode and both *width* and *height* are
     pixel sizes, the iframe stretches to the pane width while keeping the
     author's aspect ratio (``width:100%; aspect-ratio:W/H``). Callers that
     already pass ``width="100%"`` keep their declared height. Window / compact
     pop-ups keep the caller's size unchanged.
 
     *fill* controls whether the inner document is stretched to the iframe
-    (``height:100%`` on children). Default is on for inline mode. Pass
+    (``height:100%`` on children). Default is on for viewer mode. Pass
     ``False`` for renderers (e.g. Bokeh) whose event hit-testing breaks when
     the canvas is forced to fill the iframe.
     """
@@ -278,17 +278,17 @@ def host_html_document(
         from .comm_backend import get_bridge
         from .display_mode import get_display_mode
 
-        inline = get_bridge() is not None and get_display_mode() == "inline"
+        viewer = get_bridge() is not None and get_display_mode() == "viewer"
     except Exception:
-        inline = False
+        viewer = False
 
     if fill is None:
-        fill = inline
+        fill = viewer
 
     style = f"width:{width};height:{height};border:0;display:block"
-    if inline:
+    if viewer:
         if fill:
-            document = _inline_fill_document(document)
+            document = _viewer_fill_document(document)
         w_px = _parse_px(width)
         h_px = _parse_px(height)
         if w_px is not None and h_px is not None and w_px > 0 and h_px > 0:

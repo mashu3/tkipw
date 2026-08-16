@@ -25,15 +25,15 @@ class MatplotlibExtension:
 
     Follows the active :class:`tkipw.App`'s ``display_mode`` by default:
 
-    * ``inline`` — ``plt.show()`` renders PNG into the notebook-style output
+    * App ``viewer`` — ``plt.show()`` renders PNG into the notebook-style output
       area (Agg backend). Same spirit as ``%matplotlib inline``.
-    * ``window`` — ``plt.show()`` opens native Tk figure windows (TkAgg).
+    * App ``window`` — ``plt.show()`` opens native Tk figure windows (TkAgg).
       Same spirit as ``%matplotlib tk``. Interactive zoom/pan stay with
       Matplotlib; tkipw does not intercept ``show``.
     * ``widget`` — ``ipympl`` / ``jupyter-matplotlib`` canvas in the WebView
       (``%matplotlib widget``). Selected automatically by ``import ipympl``
-      (or ``matplotlib_widget()``); App ``display_mode`` still decides inline
-      pane vs pop-up. Plain ``import matplotlib`` keeps inline/window.
+      (or ``matplotlib_widget()``); App ``display_mode`` still decides viewer
+      pane vs pop-up. Plain ``import matplotlib`` keeps viewer/window.
     """
 
     name = "matplotlib"
@@ -47,9 +47,9 @@ class MatplotlibExtension:
         if force_agg is not None:
             mode = "inline" if force_agg else "window"
         if mode is None:
-            from ..display_mode import get_display_mode
+            from ..display_mode import get_display_mode, matplotlib_mode_for_display
 
-            mode = get_display_mode()
+            mode = matplotlib_mode_for_display(get_display_mode())
         self.mode: MatplotlibDisplayMode = _validate_mode(mode)
         self.force_agg = self.mode == "inline"
         self._setup = False
@@ -241,6 +241,8 @@ def _close_all_figures() -> None:
 
 
 def _validate_mode(mode: str) -> MatplotlibDisplayMode:
+    if mode == "viewer":
+        mode = "inline"
     if mode not in ("inline", "window", "widget"):
         raise ValueError(
             "matplotlib display mode must be 'inline', 'window', or 'widget', "
@@ -263,20 +265,21 @@ def enable_matplotlib(
     ----------
     mode:
         ``"inline"``, ``"window"``, or ``"widget"``. Defaults to the active
-        App's mode. ``widget`` does not change App ``display_mode`` (only the
-        Matplotlib backend).
+        App's mode (App ``viewer`` → Matplotlib ``inline``). ``widget`` does
+        not change App ``display_mode`` (only the Matplotlib backend).
+        ``"viewer"`` is accepted as an alias for ``"inline"``.
     force_agg:
         Deprecated alias: ``True`` → ``inline``, ``False`` → ``window``.
     """
-    from ..display_mode import set_display_mode
+    from ..display_mode import display_mode_for_matplotlib, set_display_mode
     from ..jupyter import enable_extension, get_extension, register_extension
 
     if force_agg is not None:
         mode = "inline" if force_agg else "window"
     if mode is None:
-        from ..display_mode import get_display_mode
+        from ..display_mode import get_display_mode, matplotlib_mode_for_display
 
-        mode = get_display_mode()
+        mode = matplotlib_mode_for_display(get_display_mode())
     mode = _validate_mode(mode)
 
     existing = get_extension("matplotlib")
@@ -292,11 +295,11 @@ def enable_matplotlib(
         enable_extension(existing.name)
 
     if mode != "widget":
-        set_display_mode(mode)
+        set_display_mode(display_mode_for_matplotlib(mode))
 
 
 def matplotlib_inline() -> None:
-    """Switch the active App to inline mode with Matplotlib enabled."""
+    """Switch the active App to viewer mode with Matplotlib PNG / Agg."""
     enable_matplotlib(mode="inline")
 
 
@@ -310,7 +313,7 @@ def matplotlib_widget() -> None:
 
     Prefer ``import ipympl`` in scripts; this helper remains for explicit
     switches. Playground runs call :func:`sync_matplotlib_from_source` so a
-    tab without ``ipympl`` returns to the App's inline/window backend.
+    tab without ``ipympl`` returns to the App's viewer/window backend.
     """
     enable_matplotlib(mode="widget")
 
@@ -319,7 +322,7 @@ def sync_matplotlib_from_source(code: str) -> None:
     """Pick Matplotlib backend from user source before ``exec``.
 
     * Source contains ``import ipympl`` / ``from ipympl …`` → widget backend.
-    * Otherwise → App ``display_mode`` (PNG inline or TkAgg window).
+    * Otherwise → App ``display_mode`` (PNG in the viewer pane, or TkAgg window).
 
     Needed because ``import ipympl`` is process-global: without a per-run reset,
     a later matplotlib-only tab would keep the interactive canvas.
@@ -327,6 +330,6 @@ def sync_matplotlib_from_source(code: str) -> None:
     if _IPYMPL_IMPORT_RE.search(code or ""):
         enable_matplotlib(mode="widget")
         return
-    from ..display_mode import get_display_mode
+    from ..display_mode import get_display_mode, matplotlib_mode_for_display
 
-    enable_matplotlib(mode=get_display_mode())
+    enable_matplotlib(mode=matplotlib_mode_for_display(get_display_mode()))

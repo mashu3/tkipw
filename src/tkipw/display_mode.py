@@ -1,19 +1,24 @@
-"""Per-App display mode: ``inline`` (notebook output) vs ``window`` (pop-ups).
+"""Per-App display mode: ``viewer`` (host output area) vs ``window`` (pop-ups).
 
-* **inline** — ``display()`` / library ``show()`` routes into the active App's
-  notebook-style output area (Playground default).
+* **viewer** — ``display()`` / library ``show()`` routes into the active App's
+  notebook-style output area (Playground / tklab Viewer default).
 * **window** — each ``display()`` opens a separate Tk ``Toplevel`` with its own
   embedded WebView. Matplotlib is special-cased to native TkAgg figure windows
   (``%matplotlib tk`` style) instead of a WebView PNG.
+
+``"inline"`` is accepted as a deprecated alias for ``"viewer"``. Matplotlib's
+own adapter modes (``inline`` / ``window`` / ``widget``) are separate: App
+``viewer`` maps to Matplotlib ``inline`` (PNG / Agg).
 """
 
 from __future__ import annotations
 
 from typing import Any, Literal
 
-DisplayMode = Literal["inline", "window"]
+DisplayMode = Literal["viewer", "window"]
 
-_default_display_mode: DisplayMode = "inline"
+_DISPLAY_MODE_ALIASES = {"inline": "viewer"}
+_default_display_mode: DisplayMode = "viewer"
 _window_serial = 0
 _MIN_POPUP_SIZE = (480, 320)
 
@@ -53,20 +58,20 @@ def _reveal_window(win: Any) -> None:
 
 
 def get_display_mode() -> DisplayMode:
-    """Return the active App's display mode (``inline`` without an App)."""
+    """Return the active App's display mode (``viewer`` without an App)."""
     try:
         from .comm_backend import get_bridge
 
         app = get_bridge()
         mode = getattr(app, "display_mode", None)
-        if mode in ("inline", "window"):
-            return mode
+        if isinstance(mode, str) and mode in ("inline", "viewer", "window"):
+            return validate_display_mode(mode)
     except Exception:
         pass
     return _default_display_mode
 
 
-def set_display_mode(mode: DisplayMode) -> None:
+def set_display_mode(mode: DisplayMode | Literal["inline"]) -> None:
     """Change the active App's mode at runtime.
 
     New code should normally pass ``display_mode=`` to :class:`tkipw.App`.
@@ -90,7 +95,7 @@ def set_display_mode(mode: DisplayMode) -> None:
 
 
 def _sync_host_visibility(app: Any) -> None:
-    """Hide an owned root in window mode; show it again for inline."""
+    """Hide an owned root in window mode; show it again for viewer."""
     if not getattr(app, "_owns_root", False):
         return
     root = getattr(app, "root", None)
@@ -106,17 +111,36 @@ def _sync_host_visibility(app: Any) -> None:
 
 
 def validate_display_mode(mode: str) -> DisplayMode:
-    """Validate and narrow a display-mode value."""
-    if mode not in ("inline", "window"):
-        raise ValueError(f"display mode must be 'inline' or 'window', got {mode!r}")
-    return mode  # type: ignore[return-value]
+    """Validate and narrow a display-mode value.
+
+    ``"inline"`` is accepted as a deprecated alias for ``"viewer"``.
+    """
+    mapped = _DISPLAY_MODE_ALIASES.get(mode, mode)
+    if mapped not in ("viewer", "window"):
+        raise ValueError(f"display mode must be 'viewer' or 'window', got {mode!r}")
+    return mapped  # type: ignore[return-value]
+
+
+def matplotlib_mode_for_display(mode: DisplayMode | str) -> Literal["inline", "window"]:
+    """Map App ``display_mode`` to a Matplotlib adapter mode (not ``widget``)."""
+    if mode in ("inline", "viewer", "window"):
+        mode = validate_display_mode(mode)
+    return "window" if mode == "window" else "inline"
+
+
+def display_mode_for_matplotlib(mode: str) -> DisplayMode:
+    """Map Matplotlib ``inline`` / ``window`` to App ``display_mode``.
+
+    ``widget`` is not an App mode — callers must skip this helper.
+    """
+    return "window" if mode == "window" else "viewer"
 
 
 def sync_matplotlib(mode: DisplayMode) -> None:
     """Keep the Matplotlib adapter aligned with the active App.
 
     Does not override an explicit ``widget`` (ipympl) backend — App
-    ``display_mode`` still controls inline pane vs pop-up routing.
+    ``display_mode`` still controls viewer pane vs pop-up routing.
     Does not import matplotlib if the user has not imported it yet.
     """
     import sys
@@ -136,7 +160,7 @@ def sync_matplotlib(mode: DisplayMode) -> None:
     if isinstance(existing, MatplotlibExtension):
         if existing.mode == "widget":
             return
-        existing.set_mode(mode)
+        existing.set_mode(matplotlib_mode_for_display(mode))
 
 
 def open_display_window(
@@ -253,7 +277,7 @@ def open_display_window(
         title=win_title,
         width=win_w,
         height=win_h,
-        display_mode="inline",
+        display_mode="viewer",
         compact=True,
         theme=host_theme,
         colors=host_colors,

@@ -39,7 +39,7 @@ class FakeApp:
     the ``_append_output`` / ``_clear_output`` hooks ``tkipw.output`` calls.
     """
 
-    def __init__(self, *, display_mode: str = "inline") -> None:
+    def __init__(self, *, display_mode: str = "viewer") -> None:
         from tkipw.output import Output
 
         self.display_mode = display_mode

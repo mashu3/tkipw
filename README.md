@@ -103,7 +103,7 @@ import matplotlib.pyplot as plt
 
 app = App()
 plt.plot([1, 2, 3], [1, 4, 9])
-plt.show()          # routed into the output area (inline mode — default)
+plt.show()          # routed into the output area (viewer mode — default)
 app.run()
 ```
 
@@ -153,9 +153,10 @@ root.mainloop()
 * `register_widget_module(name, path)` — load a classic AMD/nbextension JS module
   from a local file or directory (not bundled, not CDN). `App()` also discovers
   modules already installed under Jupyter `nbextensions`
-* `App(display_mode="inline"|"window")` — output pane vs one Tk pop-up per `display()`
-  (window mode hides the host root so only the pop-ups are visible)
-* `plt.show()` — follows the active App (PNG inline, or native TkAgg windows)
+* `App(display_mode="viewer"|"window")` — output pane vs one Tk pop-up per `display()`
+  (window mode hides the host root so only the pop-ups are visible). `"inline"`
+  is a deprecated alias for `"viewer"`
+* `plt.show()` — follows the active App (PNG in the viewer pane, or native TkAgg windows)
 
 > **Import order:** `from tkipw import App` before you create widgets, so they
 > bind to tkipw's Comm backend instead of a `DummyComm`.
@@ -192,7 +193,7 @@ The monkey-patches are also individually reversible:
 
 ```bash
 pip install "tkipw[demo]"        # or: pip install -e ".[demo]"
-python examples/playground.py    # inline: Monaco editor + stacked output
+python examples/playground.py    # viewer: Monaco editor + stacked output
 python examples/plotly_demo.py   # window: Plotly FigureWidget pop-up
 python examples/ipyleaflet_demo.py # window: live ipyleaflet map pop-up
 python examples/ipycanvas_demo.py  # window: live ipycanvas Canvas pop-up
@@ -205,7 +206,7 @@ python examples/pillow_demo.py   # window: Pillow ``Image.show()`` pop-up
 
 | Script | Mode | Description |
 | ------ | ---- | ----------- |
-| [`examples/playground.py`](examples/playground.py) | inline | Monaco multi-tab editor + stacked live output |
+| [`examples/playground.py`](examples/playground.py) | viewer | Monaco multi-tab editor + stacked live output |
 | [`examples/plotly_demo.py`](examples/plotly_demo.py) | window | Plotly `FigureWidget` in a Tk pop-up |
 | [`examples/ipyleaflet_demo.py`](examples/ipyleaflet_demo.py) | window | Live ipyleaflet widget map in a Tk pop-up |
 | [`examples/ipycanvas_demo.py`](examples/ipycanvas_demo.py) | window | Live ipycanvas `Canvas` in a Tk pop-up |
@@ -219,7 +220,7 @@ python examples/pillow_demo.py   # window: Pillow ``Image.show()`` pop-up
 
 ## 🖥️ Playground
 
-An **inline-mode** IDE-like playground with a Monaco multi-tab editor on the left
+A **viewer-mode** IDE-like playground with a Monaco multi-tab editor on the left
 and stacked notebook-style output on the right:
 
 ```bash
@@ -234,7 +235,7 @@ themed output pane; Python code can render the same content with
 button; stopping cooperative Python execution reports the interruption in the
 output pane. The menu bar has
 New/Open/Save, Undo/Redo, Find/Replace, Minimap, Word Wrap, editor theme, and a
-**View → Display Mode → Inline / Window** selector. Inline results are stacked
+**View → Display Mode → Viewer / Window** selector. Viewer results are stacked
 in the toggleable output pane; Window mode opens each `display()` in a separate
 Tk pop-up. Monaco loads from a CDN on first run.
 
@@ -268,10 +269,10 @@ Extra `_repr_mimebundle_` keys (not a whole library) go through
 Built-ins:
 
 * **Matplotlib** — follows the active App's ``display_mode`` by default:
-  ``inline`` → PNG in the output area; ``window`` → native TkAgg figure windows
+  ``viewer`` → PNG in the output area; ``window`` → native TkAgg figure windows
   (``%matplotlib tk`` style).   ``import matplotlib`` alone keeps that path.
   ``import ipympl`` switches to interactive WebView canvases
-  (``%matplotlib widget``); App ``display_mode`` still chooses the inline pane
+  (``%matplotlib widget``); App ``display_mode`` still chooses the viewer pane
   vs pop-up. The Playground resets the backend from each tab's source so a
   matplotlib-only tab does not stay stuck on ipympl after an earlier run.
   Shortcuts: ``matplotlib_inline()`` / ``matplotlib_window()`` /
@@ -288,7 +289,7 @@ Built-ins:
   `on_download`.
 * **ipympl** — bundled `jupyter-matplotlib` module for interactive Matplotlib
   zoom/pan toolbars in the WebView (activated by ``import ipympl``).
-* **Pillow** — `Image.show()` → PNG via ``display()`` (inline pane or pop-up)
+* **Pillow** — `Image.show()` → PNG via ``display()`` (viewer pane or pop-up)
 * **Altair** — standalone Vega-Lite HTML hosted in a responsive iframe
 * **Bokeh** — `show()` / displayed models → standalone HTML hosted in an iframe
 * **PyVista** — `handle_plotter → show_trame → IPython.display`. On macOS the

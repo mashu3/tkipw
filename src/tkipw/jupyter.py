@@ -233,11 +233,14 @@ def _register_builtin(name: str) -> bool:
         return True
     try:
         if name == "matplotlib":
-            from .display_mode import get_display_mode
+            from .display_mode import get_display_mode, matplotlib_mode_for_display
             from .extensions.matplotlib import MatplotlibExtension
 
             register_extension(
-                MatplotlibExtension(mode=get_display_mode()), enable=False
+                MatplotlibExtension(
+                    mode=matplotlib_mode_for_display(get_display_mode())
+                ),
+                enable=False,
             )
         elif name == "pyvista":
             from .extensions.pyvista import PyVistaExtension
@@ -369,7 +372,7 @@ def _try_enable_pyvista() -> None:
 def _try_enable_ipympl() -> None:
     """Switch Matplotlib to the ipympl WebView backend after ``import ipympl``.
 
-    Plain ``import matplotlib`` keeps the App's inline PNG / window TkAgg path.
+    Plain ``import matplotlib`` keeps the App's viewer PNG / window TkAgg path.
     """
     global _ipympl_enabling
     if _ipympl_enabling:
